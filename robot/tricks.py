@@ -1,0 +1,181 @@
+"""Custom tricks: everything under <repo>/tricks/<name>/trick.yaml.
+
+(Provided infrastructure: you should not need to change this file.)
+
+Two kinds, both designed with pupper-mjlab's motion design tools:
+
+  type: replay   a joint trajectory (``motion``: a CSV with timestamp_ns,
+                 timestamp_sec and the 12 joint names, absolute radians),
+                 played open loop through the position controllers, like the
+                 13 built-in tricks.
+  type: policy   a tracking policy (``policy``: the JSON from pupper-mjlab's
+                 export_trick.py, which carries its own reference motion).
+                 The launch file loads one inactive controller per policy
+                 trick; playing the trick switches to it and back.
+
+trick.yaml fields: description (what Gemini reads), type, motion or policy,
+start_pose / end_pose (standing, sitting or lying), and for policies an optional
+max_body_angle_deg (the tilt e-stop while the trick plays; default 60).
+
+Clip tricks. A policy trained on a clip library (pupper-mjlab's
+motion_design.concat_clips) carries a clip table in its JSON. The controller
+plays the first clip and follows each clip's ``next`` until it reaches a looping
+clip (the dog stays) or a clip with nowhere to go (it holds the last frame).
+Two more trick.yaml fields turn clips into things Gemini can ask for:
+
+  actions:    clip name -> description. Each becomes a trick action that plays
+              that clip while the trick is running (the trick_action tool).
+  exit_clip:  a clip that brings the robot back to standing. It plays by itself
+              before any other motion, and after it the walking policy takes over.
+
+This module has no ROS imports, so the launch file can use it too.
+"""
+
+from __future__ import annotations
+
+import csv
+import json
+import math
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+TRICK_DIR = Path(__file__).resolve().parent.parent / "tricks"
+# Trick controllers hold the default pose briefly, then fade the policy in; the
+# trick's own clock starts after the fade (see pupper_gait_deploy trick_motion.hpp).
+TRICK_INIT_S = 0.5
+TRICK_FADE_S = 1.0
+
+# The walking controller Gemini drives: the course default policy with the
+# running cap lifted. The joystick's X controller (neural_controller_default)
+# keeps its walk-only caps.
+WALK_CONTROLLER = "gemini_walk"
+WALK_SPEED_CAP = 1.5  # m/s, forward, backward and (clipped by the policy to 0.5) sideways
+
+
+@dataclass
+class Trick:
+  name: str
+  description: str
+  kind: str  # "policy" or "replay"
+  path: Path  # policy JSON or motion CSV
+  duration: float  # seconds of motion
+  start_pose: str = "standing"
+  end_pose: str = "standing"
+  max_body_angle: float = math.radians(60.0)
+  clips: list[dict] = field(default_factory=list)  # the policy's clip table
+  fps: float = 50.0
+  actions: dict[str, str] = field(default_factory=dict)  # clip -> description
+  exit_clip: str | None = None
+
+  def clip(self, name: str) -> dict:
+    return next(c for c in self.clips if c["name"] == name)
+
+  def clip_length(self, name: str) -> float:
+    """Seconds the controller spends in one pass of a clip (see ClipPlayer)."""
+    c = self.clip(name)
+    return (c["end"] - c["start"] - 1) / self.fps
+
+  def intro_duration(self) -> float:
+    """From the first clip, following next, until a looping clip or a hold."""
+    total, name, seen = 0.0, self.clips[0]["name"], set()
+    while name and name not in seen:  # "next" names the following clip
+      seen.add(name)
+      c = self.clip(name)
+      if c.get("loop"):
+        break
+      total += self.clip_length(name)
+      name = c.get("next")
+    return total
+
+  @property
+  def controller(self) -> str:
+    """ros2_control controller name for a policy trick."""
+    return "trick_" + re.sub(r"[^a-z0-9_]", "_", self.name.lower())
+
+  @property
+  def total_time(self) -> float:
+    """How long playing the trick takes, including the controller's blend-in."""
+    if self.clips:  # a clip trick is "played" once its opening clips are done
+      return TRICK_INIT_S + TRICK_FADE_S + self.intro_duration()
+    lead_in = TRICK_INIT_S + TRICK_FADE_S if self.kind == "policy" else 1.0
+    return lead_in + self.duration
+
+
+def _csv_duration(path: Path) -> float:
+  with open(path) as f:
+    rows = list(csv.DictReader(f))
+  return float(rows[-1]["timestamp_sec"]) - float(rows[0]["timestamp_sec"])
+
+
+def load_tricks(trick_dir: Path = TRICK_DIR) -> dict[str, Trick]:
+  tricks = {}
+  for spec_path in sorted(trick_dir.glob("*/trick.yaml")):
+    spec = yaml.safe_load(spec_path.read_text())
+    name = spec_path.parent.name
+    kind = spec.get("type")
+    clips, fps = [], 50.0
+    if kind == "policy":
+      path = spec_path.parent / spec["policy"]
+      info = json.loads(path.read_text())["trick"]
+      duration = float(info["duration_s"])
+      clips, fps = list(info.get("clips", [])), float(info.get("fps", 50.0))
+    elif kind == "replay":
+      path = spec_path.parent / spec["motion"]
+      duration = _csv_duration(path)
+    else:
+      raise ValueError(f"{spec_path}: type must be policy or replay, not {kind!r}")
+    actions = {str(k): str(v).strip() for k, v in (spec.get("actions") or {}).items()}
+    exit_clip = spec.get("exit_clip")
+    clip_names = {c["name"] for c in clips}
+    for clip in [*actions, *([exit_clip] if exit_clip else [])]:
+      if clip not in clip_names:
+        raise ValueError(f"{spec_path}: clip {clip!r} is not in the policy's clips {sorted(clip_names)}")
+    tricks[name] = Trick(
+      name=name,
+      description=str(spec.get("description", name)).strip(),
+      kind=kind,
+      path=path,
+      duration=duration,
+      start_pose=spec.get("start_pose", "standing"),
+      end_pose=spec.get("end_pose", "standing"),
+      max_body_angle=math.radians(float(spec.get("max_body_angle_deg", 60.0))),
+      clips=clips,
+      fps=fps,
+      actions=actions,
+      exit_clip=exit_clip,
+    )
+  return tricks
+
+
+def controller_params(trick: Trick, base: dict) -> dict:
+  """Parameters for a trick's controller: the course default controller's, with the
+  trick's policy, a short blend-in, its tilt limit, and the gamepad's extra buttons off."""
+  params = dict(base)
+  params.pop("chord_partner", None)
+  params.update(
+    model_path=str(trick.path),
+    init_duration=TRICK_INIT_S,
+    fade_in_duration=TRICK_FADE_S,
+    max_body_angle=trick.max_body_angle,
+    game_buttons=False,
+    max_vx_forward=0.0,
+    max_vx_backward=0.0,
+  )
+  return params
+
+
+def walk_controller_params(base: dict) -> dict:
+  """The gemini_walk controller: the course default controller, able to run, with
+  the gamepad's extra buttons off."""
+  params = dict(base)
+  params.pop("chord_partner", None)
+  params.update(
+    game_buttons=False,
+    speed_cap=WALK_SPEED_CAP,
+    max_vx_forward=WALK_SPEED_CAP,
+    max_vx_backward=WALK_SPEED_CAP,
+  )
+  return params
