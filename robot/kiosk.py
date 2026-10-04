@@ -47,9 +47,9 @@ class Page:
 async def main(key_file):
     key = open(key_file).read().strip()
     setup = f"""(() => {{ try {{
-      const cfg = Object.assign(JSON.parse(localStorage.getItem('gemini_pupper_config') || '{{}}'), {json.dumps(SETTINGS)});
-      localStorage.setItem('gemini_pupper_api_key', {json.dumps(key)});
-      localStorage.setItem('gemini_pupper_config', JSON.stringify(cfg));
+      const cfg = Object.assign(JSON.parse(localStorage.getItem('pupster_config') || '{{}}'), {json.dumps(SETTINGS)});
+      localStorage.setItem('pupster_api_key', {json.dumps(key)});
+      localStorage.setItem('pupster_config', JSON.stringify(cfg));
     }} catch (e) {{}} }})();"""
     async with websockets.connect(page_ws(), max_size=None) as ws:
         p = Page(ws)
@@ -57,7 +57,7 @@ async def main(key_file):
         await p.call("Page.addScriptToEvaluateOnNewDocument", {"source": setup})
         await p.call("Page.reload", {"ignoreCache": True})
         await asyncio.sleep(5)
-        ok = await p.ev("(localStorage.getItem('gemini_pupper_api_key') || '').length > 0")
+        ok = await p.ev("(localStorage.getItem('pupster_api_key') || '').length > 0")
         print("kiosk: settings applied" if ok else "kiosk: WARNING settings not applied", flush=True)
     while True:  # press Wake whenever it shows, e.g. after the Gemini session drops
         try:

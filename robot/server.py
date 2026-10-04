@@ -3,13 +3,11 @@
 Run on the Pupper after the robot stack is up (see start.sh):
     python3 robot/server.py
 
-Every command endpoint returns {"success": bool, "message": str}. The browser
-passes that straight back to Gemini as the tool result, so Gemini hears about
-refused speeds, unknown tricks and failed controller switches.
-
-(Provided: the endpoints only translate HTTP into ToolServer calls. The tool
-logic you write lives in tool_server.py; the tools Gemini sees live in
-services/geminiLive.ts.)
+The web app gets Gemini's instructions and tools from GET /tools (robot/prompt.md
+and robot/tools.py) and sends every tool call to POST /tools/<name>. Every call
+returns {"success": bool, "message": str}, which goes straight back to Gemini,
+so Gemini hears about refused speeds, unknown tricks and failed controller
+switches. The other endpoints are for the debug panel and for testing by hand.
 """
 
 from __future__ import annotations
@@ -25,11 +23,12 @@ from pathlib import Path
 
 import psutil
 import uvicorn
-from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import tools as gemini_tools
 from tool_server import LIMITS, ToolServer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -37,25 +36,8 @@ log = logging.getLogger("server")
 
 REPO = Path(__file__).resolve().parent.parent
 WEB_DIST = REPO / "dist"
+PROMPT_FILE = Path(__file__).resolve().parent / "prompt.md"
 BATTERY_SCRIPT = Path("/home/pi/pupperv3-monorepo/robot/utils/check_batt_voltage.py")
-
-# Friendly trick names Gemini sees -> recording file stem, with what each looks like.
-# Only tricks whose recording is installed are offered (see /animations).
-TRICKS = {
-    "twerk": ("twerk_recording_2025-09-04_16-14-51_0", "From standing, wiggles its hips in a rhythmic dance"),
-    "lie_sit_lie": ("lie_sit_lie_recording_2025-09-03_12-44-08_0", "From lying down, sits up and lies back down"),
-    "stand_sit_shake_sit_stand": ("stand_sit_shake_sit_stand_recording_2025-09-03_12-47-18_0", "From standing, sits, shakes a paw, sits, stands back up"),
-    "stand_sit_stand": ("stand_sit_stand_recording_2025-09-03_12-46-36_0", "From standing, sits down and stands back up"),
-    "upward_dog": ("upward_dog_recording_2025-10-22_17-17-07", "From lying down, yoga upward dog and back down"),
-    "lie_downward_dog": ("lie_downward_dog_recording_2025-09-04_16-08-00_0", "From lying down, yoga downward dog"),
-    "stand_downward_dog": ("stand_downward_dog_recording_2025-09-04_16-09-51_0", "From standing, yoga downward dog"),
-    "superman": ("superman_recording_2025-10-22_17-47-41", "From lying down, lifts legs off the ground like flying"),
-    "pee": ("pee2_recording_2025-10-22_17-41-45", "From standing, lifts a back leg to pee"),
-    "push_up": ("push_up_recording_2025-09-04_16-11-34_0", "From standing, lowers and raises its body"),
-    "sneeze": ("sneeze_recording_2025-09-04_16-13-54_0", "From standing, a sneezing head and body jerk"),
-    "spider": ("spider_recording_2025-09-04_16-12-38_0", "From lying down, silly spider legs"),
-    "swim": ("swim_recording_2025-09-04_16-10-45_0", "From lying down, paddles its legs like swimming"),
-}
 
 tools: ToolServer | None = None
 
@@ -136,24 +118,32 @@ class TrickAction(BaseModel):
     action: str
 
 
-class DanceStep(BaseModel):
-    """Part 3: one move of a dance. Change these fields if your dance tool needs
-    different ones (keep services/geminiLive.ts and ToolServer.dance in step)."""
-
-    move: str = Field(..., description="a move of your dance trick")
-    hold_s: float = Field(0.0, description="seconds to rest after the move")
-
-
-class Dance(BaseModel):
-    moves: list[DanceStep]
-
-
 class Wait(BaseModel):
     duration: float
 
 
 class Volume(BaseModel):
     volume: int = Field(..., ge=0, le=150)
+
+
+# ------------------------------------------------------------------ Gemini's tools
+def system_prompt() -> str:
+    """robot/prompt.md without its <!-- comments -->."""
+    text = PROMPT_FILE.read_text() if PROMPT_FILE.exists() else ""
+    return re.sub(r"<!--.*?-->", "", text, flags=re.S).strip()
+
+
+@app.get("/tools")
+def tool_list():
+    """What Gemini is told: the system prompt and the tool declarations."""
+    return {"prompt": system_prompt(), "tools": gemini_tools.declarations(T())}
+
+
+@app.post("/tools/{name}")
+async def tool_call(name: str, args: dict = Body(default={})):
+    res = await gemini_tools.call(T(), name, args)
+    log.info("tool %s(%s) -> %s: %s", name, args, "ok" if res.ok else "FAILED", res.message)
+    return res.as_dict()
 
 
 # ------------------------------------------------------------------ commands
@@ -184,22 +174,12 @@ async def move_direction(req: MoveDirection):
 
 @app.post("/animation")
 async def animation(req: Trick):
-    name = req.animation_name
-    if name in T().tricks:  # custom tricks in <repo>/tricks
-        return (await T().custom_trick(name)).as_dict()
-    if name not in TRICKS:
-        return {"success": False, "message": f"unknown trick '{name}'; available: {list(available_tricks())}"}
-    return (await T().animation(TRICKS[name][0])).as_dict()
+    return (await T().trick(req.animation_name)).as_dict()
 
 
 @app.post("/trick_action")
 async def trick_action(req: TrickAction):
     return (await T().trick_action(req.action)).as_dict()
-
-
-@app.post("/dance")
-async def dance(req: Dance):
-    return (await T().dance([dict(step) for step in req.moves])).as_dict()
 
 
 @app.get("/trick_actions")
@@ -214,17 +194,11 @@ def animations():
 
 
 def available_tricks() -> dict:
-    """Built-in tricks (monorepo recordings) plus custom tricks from <repo>/tricks."""
-    installed = T().animations
-    out = {
-        name: {"description": desc, "duration_s": round(installed[stem], 1), "kind": "built-in"}
-        for name, (stem, desc) in TRICKS.items()
-        if stem in installed
+    """The tricks in <repo>/tricks, every one played by a policy."""
+    return {
+        name: {"description": t.description, "duration_s": round(t.total_time, 1), "kind": t.kind}
+        for name, t in T().tricks.items()
     }
-    for name, t in T().tricks.items():
-        out[name] = {"description": t.description, "duration_s": round(t.total_time, 1),
-                     "kind": f"custom {t.kind}"}
-    return out
 
 
 @app.post("/queue/wait")

@@ -75,11 +75,12 @@ const Settings: React.FC<SettingsProps> = ({ apiKey, setApiKey, config, setConfi
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">System Instruction</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Extra Instructions</label>
+            <p className="text-xs text-gray-500 mb-1">Pupper's personality and rules come from the robot (robot/prompt.md). Anything here is added after them.</p>
             <textarea
-              value={config.systemInstruction}
-              onChange={(e) => setConfig({...config, systemInstruction: e.target.value})}
-              placeholder="Enter system instructions for the robot persona..."
+              value={config.extraInstructions}
+              onChange={(e) => setConfig({...config, extraInstructions: e.target.value})}
+              placeholder="Optional: try out an extra instruction without editing prompt.md..."
               rows={4}
               className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white text-xs focus:border-cyan-500 outline-none resize-y"
             />
@@ -161,7 +162,12 @@ const Settings: React.FC<SettingsProps> = ({ apiKey, setApiKey, config, setConfi
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex items-center justify-between gap-4">
+          <p className="text-xs text-gray-500">
+            Gemini Pupper by{' '}
+            <a href="https://scholar.google.com/citations?user=460NWeQAAAAJ&hl=en" target="_blank" rel="noreferrer" className="text-cyan-500 hover:underline">Peng Xu</a>
+            {' '}(Google DeepMind), adapted for Stanford CS 123.
+          </p>
           <button
             onClick={onClose}
             className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded font-medium transition-colors"

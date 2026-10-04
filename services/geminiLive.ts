@@ -2,86 +2,24 @@
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
 import { createPcmBlob, decodeAudioData, blobToBase64 } from './audioUtils';
 import { AppConfig, LogEntry } from '../types';
-import { ANIMATION_NAMES } from '../constants';
 import RobotBridge from './robotBridge';
 
-export interface Trick { id: string; description: string }
-/** An action of a running clip trick, e.g. shaking a paw while the sit trick holds. */
-export interface TrickAction { id: string; trick: string; description: string }
-export interface MoveLimits { vx_min: number; vy_min: number; wz_min: number; vx_max: number; vy_max: number; wz_max: number; duration_max: number; distance_max?: number }
-
-const DEFAULT_LIMITS: MoveLimits = { vx_min: 0.2, vy_min: 0.2, wz_min: 20, vx_max: 1.5, vy_max: 0.5, wz_max: 114, duration_max: 10, distance_max: 5 };
-
 /**
- * The tools Gemini may call. Built at connect time from what the robot reports
- * (GET /animations, GET /limits and GET /trick_actions), so the trick list and
- * speed ranges Gemini sees always match what the robot will accept.
- *
- * A tool's name, description and parameter schema are ALL Gemini knows about
- * it. Gemini picks tools, fills in arguments and decides what to say from this
- * text alone -- write it for a reader who has never seen the robot.
+ * Gemini's tools and system prompt come from the robot (GET /tools): they are
+ * written in Python, in robot/tools.py and robot/prompt.md. Every tool call is
+ * sent back to the robot (POST /tools/<name>), and its {success, message} goes
+ * to Gemini as the result. Only `speak` lives here: text-only models use it to
+ * talk through the browser's speech synthesis.
  */
-export function buildTools(tricks: Trick[], L: MoveLimits, actions: TrickAction[] = []): FunctionDeclaration[] {
-  const trickList = tricks.map(t => `- "${t.id}": ${t.description}`).join('\n');
-
-  // ========== YOUR CODE HERE: the tools you give Gemini (Parts 1-3) ==========
-  // TODO(student): the starter robot can only wake up, lie down, stop, and play
-  // a trick (below). Add, as FunctionDeclarations:
-  //
-  //   Part 1  walking, turning and running, and following a person. How you
-  //           split these into tools is your design (one general move tool?
-  //           separate walk/turn tools? what are the arguments and defaults?).
-  //           Use the limits in `L` in your descriptions so Gemini knows the
-  //           ranges, and remember that what the user means by "run" has to
-  //           become a speed. Follow mode: questions keep following, any motion
-  //           ends it, and Pupper says so first -- tell Gemini that here, and
-  //           enforce it on the robot (tool_server.py).
-  //   Part 2  trick_action: actions of a trick that holds a pose (only when
-  //           `actions` is non-empty; each has an id, its trick and a
-  //           description). Constrain the argument to the ids that exist.
-  //   Part 3  dance: a list of moves with timing, for your dance trick.
-  //
-  // Look at the tools below for the format (Type.OBJECT, properties, enum,
-  // required), and add a matching `case` for each new tool in handleMessage.
-  const studentTools: FunctionDeclaration[] = [];
-  // ============================================================================
-
-  return [
-    ...studentTools,
-    {
-      name: 'queue_activate_walking',
-      description: 'Stand up and switch on the walking controller. Use it to stand up, including after a trick.',
-    },
-    {
-      name: 'queue_deactivate',
-      description: 'Relax all motors so the robot lies down. Use when the user says sleep, relax or lie down.',
-    },
-    {
-      name: 'immediate_stop',
-      description: 'Emergency stop: cancel everything queued and stand still.',
-    },
-    {
-      name: 'queue_animation',
-      description: `Play a pre-recorded trick. Each says whether it starts from standing or lying down; if the robot is in the other pose the trick still plays but looks wrong. Tricks leave the robot in their final pose until the next move or queue_activate_walking.\nAvailable tricks:\n${trickList}`,
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          animation_name: { type: Type.STRING, description: 'The exact trick id.', enum: tricks.map(t => t.id) },
-        },
-        required: ['animation_name'],
-      },
-    },
-    {
-      name: 'speak',
-      description: 'Speak a message out loud to the user via voice synthesis. Use this tool whenever you want to talk, reply, narrate actions, or converse.',
-      parameters: {
-        type: Type.OBJECT,
-        properties: { text: { type: Type.STRING, description: 'The text message to synthesize and speak aloud.' } },
-        required: ['text'],
-      },
-    },
-  ];
-}
+const SPEAK_TOOL: FunctionDeclaration = {
+  name: 'speak',
+  description: 'Speak a message out loud to the user via voice synthesis. Use this tool whenever you want to talk, reply, narrate actions, or converse.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: { text: { type: Type.STRING, description: 'The text message to synthesize and speak aloud.' } },
+    required: ['text'],
+  },
+};
 
 export function isAudioOutputModel(modelName: string): boolean {
   const name = modelName.toLowerCase();
@@ -194,28 +132,20 @@ export class GeminiLiveService {
       : config.modelName;
     const isAudioOutput = isAudioOutputModel(modelName);
 
-    let systemInstruction = config.systemInstruction;
+    // Ask the robot for Gemini's system prompt and tools (robot/prompt.md, robot/tools.py).
+    const spec: any = await this.robotBridge.getTools();
+    const robotTools: FunctionDeclaration[] = Array.isArray(spec?.tools) ? spec.tools : [];
+    if (robotTools.length) {
+      this.log('info', `Robot offers ${robotTools.length} tools: ${robotTools.map(t => t.name).join(', ')}`);
+    } else {
+      this.log('error', `Could not get tools from the robot (${spec?.message ?? 'no tools'}); Gemini can talk but not move.`);
+    }
+    let systemInstruction = [spec?.prompt, config.extraInstructions].filter(Boolean).join('\n\n');
     if (!isAudioOutput) {
       systemInstruction += '\n\nIMPORTANT: You do not have direct voice audio output. To speak out loud to the user or narrate your actions, you MUST invoke the "speak" function tool with your response text.';
     }
 
-    // Ask the robot which tricks are installed and which speeds it accepts.
-    const reportedTricks = await this.robotBridge.getAnimations();
-    const tricks: Trick[] = reportedTricks && !('success' in reportedTricks)
-      ? Object.entries(reportedTricks).map(([id, t]: [string, any]) => ({ id, description: t.description }))
-      : ANIMATION_NAMES.map(a => ({ id: a.id, description: a.description }));
-    const reportedLimits = await this.robotBridge.getLimits();
-    const limits: MoveLimits = reportedLimits && 'vx_max' in reportedLimits ? reportedLimits : DEFAULT_LIMITS;
-    this.log('info', `Robot offers ${tricks.length} tricks${reportedTricks && !('success' in reportedTricks) ? '' : ' (robot unreachable: using the built-in list)'}`);
-
-    const reportedActions = await this.robotBridge.getTrickActions();
-    const actions: TrickAction[] = reportedActions && !('success' in reportedActions)
-      ? Object.entries(reportedActions).map(([id, a]: [string, any]) => ({ id, trick: a.trick, description: a.description }))
-      : [];
-    const allTools = buildTools(tricks, limits, actions);
-    const functionDeclarations = isAudioOutput
-      ? allTools.filter(tool => tool.name !== 'speak')
-      : allTools;
+    const functionDeclarations = isAudioOutput ? robotTools : [...robotTools, SPEAK_TOOL];
 
     const liveConfig: any = {
       responseModalities: isAudioOutput ? [Modality.AUDIO] : [Modality.TEXT],
@@ -525,30 +455,9 @@ export class GeminiLiveService {
                 result = { success: false, error: 'No text provided to speak' };
               }
               break;
-            case 'queue_activate_walking':
-              result = await this.robotBridge.queueActivateWalking();
-              break;
-            case 'queue_deactivate':
-              result = await this.robotBridge.queueDeactivate();
-              break;
-            case 'immediate_stop':
-              result = await this.robotBridge.immediateStop();
-              break;
-            case 'queue_animation':
-              result = await this.robotBridge.queueAnimation(args.animation_name);
-              break;
-            // ========== YOUR CODE HERE: dispatch your tools (Parts 1-3) ==========
-            // TODO(student): one `case` per tool you added in buildTools. Call the
-            // robot through this.robotBridge (services/robotBridge.ts has
-            // queueMove, setFollowMode, trickAction, dance, checkMode, ...) and
-            // put its reply in `result`: that object is exactly what Gemini hears
-            // back, so pass the robot's {success, message} through rather than
-            // inventing your own. Conventions: queueMove takes
-            // {vx, vy, wz, duration} in m/s and deg/s, with positive vy = right
-            // and positive wz = turn right (clockwise).
-            // =======================================================================
             default:
-              result = { error: 'Unknown tool' };
+              // Every other tool is defined and run on the robot (robot/tools.py).
+              result = await this.robotBridge.callTool(fc.name, args ?? {});
           }
         } catch (e: any) {
           result = { error: e.message };

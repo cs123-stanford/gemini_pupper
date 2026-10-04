@@ -2,12 +2,12 @@
 
 Includes the course's neural_controller launch (walking policies, camera, joystick
 e-stop) exactly as pupper_gait_deploy installs it, and adds:
-  - the animation player and the forward controllers it drives (tricks)
   - cmd_vel_mux, so the joystick, Gemini and the person follower share /cmd_vel
   - Hailo person detection and the person follower
   - gemini_walk, the walking controller Gemini drives (default policy, running
-    allowed), and one controller per policy trick in <repo>/tricks (see
-    robot/tricks.py)
+    allowed, reference tricks such as the jump enabled), and one controller per
+    policy trick in <repo>/tricks (see robot/tricks.py). Every motion Gemini asks
+    for is one of these policies; there is no open-loop trick player.
 The joystick still drives the robot, now through the mux, where it outranks Gemini.
 
     ros2 launch robot/launch/gemini_pupper.launch.py
@@ -27,29 +27,16 @@ from launch_ros.substitutions import FindPackageShare
 HERE = Path(__file__).resolve().parent
 PARAMS = str(HERE / "gemini_pupper.yaml")
 sys.path.insert(0, str(HERE.parent))
+from spawn_controllers import PARAM_FILE as TRICK_PARAMS  # noqa: E402
 from tricks import WALK_CONTROLLER, controller_params, load_tricks, walk_controller_params  # noqa: E402
 
-TRICK_PARAMS = Path("/tmp/gemini-pupper/trick_controllers.yaml")
 COURSE_CONFIG = PathJoinSubstitution([FindPackageShare("neural_controller"), "launch", "config.yaml"])
-
-
-def spawner(names, param_file=PARAMS):
-    """Load controllers inactive. One spawner loads its controllers one after another,
-    and the long service timeout lets a large policy JSON finish loading instead of
-    timing out and retrying into 'already loaded' (which leaves it unconfigured)."""
-    names = [names] if isinstance(names, str) else list(names)
-    return Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[*names, "--controller-manager", "/controller_manager", "--controller-manager-timeout", "60",
-                   "--service-call-timeout", "60", "--inactive", "--param-file", param_file],
-    )
 
 
 def gemini_controllers():
     """Write one parameter file for the controllers Gemini adds, and spawn them inactive:
-    gemini_walk (the course default policy, able to run) and one
-    NeuralController per policy trick. All start from the course default
+    gemini_walk (the course default policy, able to run and play reference tricks)
+    and one NeuralController per policy trick. All start from the course default
     controller's settings; the course's own controllers are left as they are."""
     from ament_index_python.packages import get_package_share_directory
 
@@ -79,20 +66,9 @@ def gemini_controllers():
             return True
 
     TRICK_PARAMS.write_text(yaml.dump(params, Dumper=NoAliasDumper, sort_keys=False))
-    # Load after the course's own controllers: parsing our large policy files
-    # blocks the controller manager, which made the course spawners time out and
-    # leave controllers unconfigured when they all started together.
-    names = " ".join(params)
-    wait_then_spawn = (
-        "for i in $(seq 1 90); do "
-        "out=$(ros2 control list_controllers 2>/dev/null); "
-        'echo "$out" | grep -q "imu_sensor_broadcaster.*active" && '
-        'echo "$out" | grep -q "neural_controller_default " && break; sleep 1; done; '
-        f"exec ros2 run controller_manager spawner {names} --controller-manager /controller_manager "
-        "--controller-manager-timeout 60 --service-call-timeout 60 --inactive "
-        f"--param-file {TRICK_PARAMS}"
-    )
-    return [ExecuteProcess(cmd=["bash", "-c", wait_then_spawn], output="both")]
+    # After the course's own controllers, and checked one by one: see spawn_controllers.py.
+    spawn = HERE.parent / "spawn_controllers.py"
+    return [ExecuteProcess(cmd=["python3", "-u", str(spawn), str(TRICK_PARAMS), *params], output="both")]
 
 
 def generate_launch_description():
@@ -106,11 +82,6 @@ def generate_launch_description():
         Node(package="teleop_twist_joy", executable="teleop_node", name="teleop_twist_joy_node",
              parameters=[COURSE_CONFIG], remappings=[("cmd_vel", "teleop_cmd_vel")], output="both"),
         Node(package="cmd_vel_mux", executable="cmd_vel_mux_node", parameters=[PARAMS], output="both"),
-        spawner("forward_position_controller"),
-        spawner("forward_kp_controller"),
-        spawner("forward_kd_controller"),
-        Node(package="animation_controller_py", executable="animation_controller_py",
-             name="animation_controller_py", parameters=[PARAMS], output="both"),
         Node(package="topic_tools", executable="throttle", name="joint_state_throttler",
              parameters=[PARAMS], arguments=["messages"], output="both"),
         Node(package="hailo", executable="hailo_detection", output="both", respawn=True, respawn_delay=3.0),

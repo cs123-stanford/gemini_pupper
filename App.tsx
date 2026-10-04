@@ -32,15 +32,17 @@ const App: React.FC = () => {
   
   // Load API Key from localStorage
   const [apiKey, setApiKey] = useState(() => {
-    return localStorage.getItem('gemini_pupper_api_key') || '';
+    return localStorage.getItem('pupster_api_key') || '';
   });
 
   // Load Config from localStorage
   const [config, setConfig] = useState<AppConfig>(() => {
-    const saved = localStorage.getItem('gemini_pupper_config');
+    const saved = localStorage.getItem('pupster_config');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        // The system prompt moved to the robot (robot/prompt.md); drop the old saved one.
+        delete parsed.systemInstruction;
         return { ...DEFAULT_CONFIG, ...parsed };
       } catch (e) {
         console.error("Failed to parse saved config", e);
@@ -51,12 +53,12 @@ const App: React.FC = () => {
   
   // Persist API Key changes
   useEffect(() => {
-    localStorage.setItem('gemini_pupper_api_key', apiKey);
+    localStorage.setItem('pupster_api_key', apiKey);
   }, [apiKey]);
 
   // Persist Config changes
   useEffect(() => {
-    localStorage.setItem('gemini_pupper_config', JSON.stringify(config));
+    localStorage.setItem('pupster_config', JSON.stringify(config));
   }, [config]);
 
   // Runtime State

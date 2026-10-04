@@ -10,17 +10,20 @@ they submit.
 ## What this repo is
 
 Pupper is a real robot dog: 12 motors, a Raspberry Pi, a camera. Gemini Live
-(in the browser) talks with people and calls **tools**; the tools reach the
-robot server (`robot/server.py`, port 8000), which queues them on the robot
-(`robot/tool_server.py`) and drives ROS 2 controllers. Trick policies are
-designed and trained in pupper-mjlab and fetched from W&B with
-`robot/get_trick.py`.
+(in the browser) talks with people and calls **tools**. The tools are Python:
+the web app gets Gemini's prompt (`robot/prompt.md`) and tool list
+(`robot/tools.py`) from the robot server (`robot/server.py`, port 8000), and
+sends every tool call back to it. `robot/tool_server.py` runs the motions one
+at a time and drives the ROS 2 controllers. Trick policies are trained in
+pupper-mjlab and fetched from W&B with `robot/get_trick.py`.
 
 | Student work (`YOUR CODE HERE` / `TODO(student)`) | Provided (don't rewrite) |
 | --- | --- |
-| `services/geminiLive.ts`: `buildTools` and the tool dispatch in `handleMessage` | Audio, video, face, Gemini connection (`App.tsx`, `components/`, the rest of `services/`) |
-| `robot/tool_server.py`: `check_move`, `move`, `_leave_follow_mode`, `trick_action`, `dance` | The command queue, controller switching, trick and clip playback in `tool_server.py` |
-| `tricks/<name>/trick.yaml`: descriptions, `actions`, `exit_clip` | `robot/server.py`, `robot/tricks.py`, `robot/launch/`, `start.sh`, `stop.sh`, `kiosk.py`, `get_trick.py` |
+| `robot/prompt.md`: Gemini's prompt | The web app (`App.tsx`, `components/`, `services/`): students don't need to touch TypeScript |
+| `robot/tools.py`: `move`, `turn`, `follow`, `trick_action` (descriptions and code) | The tool registry and the basic tools at the top of `tools.py` |
+| `robot/tool_server.py`: `check_move`, `move`'s walking loop, `_leave_follow_mode`, `trick_action` | The queue, controller switching, tricks, clips and fall recovery in `tool_server.py` |
+| `tricks/sit_stay_shake/trick.yaml` (after training): description, `actions`, `exit_clip` | `robot/server.py`, `robot/tricks.py`, `robot/launch/`, the shell scripts, `kiosk.py`, `get_trick.py` |
+| In pupper-mjlab: `tricks/sit_stay_shake.py` (or the Sit_Stay_Shake notebook): `cut`, `hold`, `mirror`, the clips and `ORDER` | The rest of pupper-mjlab |
 
 If a provided file looks wrong, tell the student and let them ask a TA; don't
 patch infrastructure to make a symptom go away.
@@ -52,26 +55,26 @@ patch infrastructure to make a symptom go away.
 
 ## How to check work without the robot
 
-- `python3 robot/test_tools.py` (or `part1` / `part2` / `part3`): contract
-  tests for the tool layer against a fake robot. Run them after every change
-  to `tool_server.py`. They check behaviour, not implementation.
-- `npx tsc --noEmit` after changing TypeScript; `npm run build` must succeed
-  before the robot can serve the app.
-- In pupper-mjlab: the motion report printed by `build_motion` /
-  `concat_clips`, and
+- `python3 robot/test_tools.py` (or `part1` / `part2` / `robot`): tests with a
+  fake robot. Run them after every change to `tools.py` or `tool_server.py`.
+  They check what the tools do, not how they are written.
+- In pupper-mjlab: `uv run python -m mjlab.tasks.tracking.config.pupper.tricks.sit_stay_shake`
+  checks `cut`, `hold` and `mirror` and builds the library;
   `uv run python -m mjlab.tasks.tracking.config.pupper.play_motion <motion>.npz`
-  (headless verdict; add `--checkpoint` to score a trained policy).
+  replays it with physics (add `--checkpoint` to score a trained policy).
 
 ## Conventions
 
-- Every tool returns `{success, message}` from the robot, and the browser
-  passes it to Gemini unchanged. Messages are for Gemini to read: say what
-  happened, or what was wrong and what would work instead.
-- Rules are enforced on the robot, not only in the prompt: a tool description
-  tells Gemini what to do; `tool_server.py` makes sure it happens.
+- Every tool returns a Result (`{success, message}`), and Gemini reads the
+  message. Say what happened, or what was wrong and what would work instead.
+- Rules are enforced on the robot, not only in the prompt: the prompt and the
+  tool descriptions tell Gemini what to do; the code makes sure it happens.
 - Motion goes through the queue (`_enqueue`); use `await asyncio.sleep`, never
   `time.sleep`, in the server.
-- Units: metres, seconds, degrees in tool arguments; the browser uses
-  right- and clockwise-positive velocities, ROS uses left- and
-  counter-clockwise-positive (`server.py` converts).
-- The robot is called Pupper.
+- Units: metres, seconds, degrees. Directions use the robot's convention:
+  +y is left, and a positive turn is to the left.
+- After changing `tools.py` or `tool_server.py`, restart the server
+  (`robot/stop.sh`, then `robot/start.sh`). After changing `prompt.md`,
+  reconnect in the app.
+- The robot is called Pupper. Gemini Pupper was created by Peng Xu (Google
+  DeepMind); keep his credit in the README and the app.

@@ -1,59 +1,64 @@
 """ROS side of Gemini Pupper: a command queue that turns tool calls into robot motion.
 
-Every public method returns a ``Result`` so the robot server can pass real
-outcomes back to Gemini instead of assuming success. Gemini only knows what
-these messages tell it: a refusal with a clear reason is something it can
-explain to the user; a silent failure is something it will cover up.
+Adapted from the Pupper monorepo's ros_tool_server.py, without the LiveKit voice
+agent it was written for. Every public method returns a ``Result`` so the robot
+server can pass real outcomes back to Gemini instead of assuming success.
 
-Most of this file is provided: the command queue, controller switching, and
-playing tricks and clips. The parts marked ``YOUR CODE HERE`` / ``TODO(student)``
-are the lab:
-
-  Part 1  check_move, ToolServer.move, ToolServer._leave_follow_mode
-  Part 2  ToolServer.trick_action
-  Part 3  ToolServer.dance
-
-Check your work at the desk, with no robot: ``python3 robot/test_tools.py``.
+Every motion is a policy, so the robot's state is simply which leg controller is
+active: gemini_walk (walking, the jump), one trick_<name> controller per trick, or
+none (motors relaxed). Changing what the robot does is one controller switch.
 
 Topics and controllers used (all started by launch/gemini_pupper.launch.py):
   /llm_cmd_vel                      speed commands; cmd_vel_mux forwards them to
                                     /cmd_vel, and a joystick always overrides them
-  /animation_controller_py/animation_select   trick name for the animation player
-  /forward_{position,kp,kd}_controller/commands   custom replay tricks (tricks/)
-  trick_<name> controllers           custom policy tricks (loaded by the launch file)
+  trick_<name> controllers           trick policies (loaded by the launch file)
   /trick_<name>/clip, /clip_status  clip tricks: request a clip, follow playback
   /camera/image_raw/compressed      latest camera frame
   activate/deactivate_person_following        person_follower services
+  /imu_sensor_broadcaster/imu       body tilt and rotation, to check it is safe to stand up
+  /rosout                           the controllers' "Emergency stop triggered" (tilt e-stop)
+
+Falls. A leg controller that tilts past its max_body_angle latches an e-stop: it
+stays "active" but only damps the joints until it is activated again. The tool
+server notices from /rosout, cancels the queue, and refuses motion until standing
+up again, which first checks that the robot is upright and still, then restarts
+the controller (its on_activate clears the latch and eases the legs to standing).
 """
 
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
+import math
 import queue
 import threading
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 import rclpy
 from controller_manager_msgs.srv import ListControllers, SwitchController
 from geometry_msgs.msg import Twist
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from sensor_msgs.msg import CompressedImage
-from sensor_msgs.msg import JointState
-from std_msgs.msg import Empty, Float64MultiArray, String
+from rcl_interfaces.msg import Log
+from sensor_msgs.msg import CompressedImage, Imu
+from std_msgs.msg import Empty, Float32MultiArray, String
 from std_srvs.srv import Trigger
 
-from tricks import WALK_CONTROLLER, Trick, load_tricks
+from spawn_controllers import LOADED, spawn
+from tricks import WALK_CONTROLLER, Trick, load_tricks, reference_message_data
 
 log = logging.getLogger("tool_server")
 
 # The walking controller Gemini drives: gemini_walk, the course default policy
-# (the joystick's X button) loaded by our launch file with running allowed. See
-# tricks.py.
+# (the joystick's X button) loaded by our launch file with running allowed and
+# reference tricks enabled. See tricks.py.
 WALKING_CONTROLLER = WALK_CONTROLLER
+# gemini_walk holds the default pose for init_duration, then fades the policy in
+# over fade_in_duration (the course default controller's 2 s + 2 s); reference
+# tricks are refused until then.
+WALK_READY_S = 4.2
 # Everything that may hold the leg joints; switching modes deactivates the others.
 LEG_CONTROLLERS = {
     WALK_CONTROLLER,
@@ -63,29 +68,20 @@ LEG_CONTROLLERS = {
     "neural_controller_three_legged",
     "neural_controller_student",
 }
-ANIMATION_CONTROLLERS = ["forward_position_controller", "forward_kp_controller", "forward_kd_controller"]
-
-ANIMATION_DIR = Path(
-    "/home/pi/pupperv3-monorepo/ros2_ws/install/animation_controller_py/share/animation_controller_py/launch/animations"
-)
-ANIMATION_FRAME_RATE = 40.0  # Hz, animation_controller_py's frame_rate
-ANIMATION_BLEND_IN = 1.0  # s, animation_controller_py's init_duration
 
 LLM_CMD_RATE = 20.0  # Hz; cmd_vel_mux drops a source that is quiet for 500 ms
 
-# Part 3: the clip trick your dance tool sequences (tricks/<DANCE_TRICK>/).
-DANCE_TRICK = "dance"
-
-# Custom replay tricks play like the monorepo's animation player: blend from the
-# current pose for 1 s, then follow the recording, at these gains.
-REPLAY_RATE = 100.0  # Hz
-REPLAY_BLEND_S = 1.0
-REPLAY_KP = 7.5
-REPLAY_KD = 0.25
-JOINT_NAMES = [
-    "leg_front_r_1", "leg_front_r_2", "leg_front_r_3", "leg_front_l_1", "leg_front_l_2", "leg_front_l_3",
-    "leg_back_r_1", "leg_back_r_2", "leg_back_r_3", "leg_back_l_1", "leg_back_l_2", "leg_back_l_3",
-]
+# Standing up again after a tilt e-stop: the body must be this level and this still
+# (all IMU samples over SAFE_STILL_S) before a controller is restarted.
+SAFE_TILT_DEG = 20.0
+SAFE_GYRO_RAD_S = 0.5
+SAFE_STILL_S = 1.0
+SAFE_WAIT_S = 4.0  # how long standing up waits for the robot to settle
+ESTOP_LOG = "Emergency stop triggered"
+FELL_MESSAGE = (
+    "the robot fell over: its tilt e-stop tripped and the motors only damp now. "
+    "A person should set it upright on its feet; then call stand_up"
+)
 
 
 @dataclass
@@ -105,6 +101,22 @@ class MoveLimits:
 LIMITS = MoveLimits()
 
 
+def check_move(vx: float, vy: float, wz_deg: float, duration: float, limits: MoveLimits = LIMITS) -> str | None:
+    """None if the robot may make this move, else the reason it may not.
+
+    vx forward m/s, vy left m/s, wz_deg counter-clockwise deg/s, duration in s.
+    """
+    # ========== YOUR CODE HERE: Part 1: refuse moves the robot must not make ==========
+    # TODO(student): check the move against `limits` (see MoveLimits above) and
+    # return a reason for anything the robot must not do. Look at every field
+    # of MoveLimits: speeds, duration, and the distance they add up to.
+    #
+    # The string you return is all Gemini learns, so say what was wrong and what
+    # the limit is. Until you write this, every move is refused.
+    return "move is not implemented yet: TODO(student) check_move in robot/tool_server.py"
+    # ===================================================================================
+
+
 @dataclass
 class Result:
     ok: bool
@@ -112,36 +124,6 @@ class Result:
 
     def as_dict(self) -> dict:
         return {"success": self.ok, "message": self.message}
-
-
-def check_move(vx: float, vy: float, wz_deg: float, duration: float, limits: MoveLimits = LIMITS) -> str | None:
-    """Why a move request must be refused, or None if the robot may do it.
-
-    vx forward m/s, vy left m/s, wz counter-clockwise deg/s (signs don't matter
-    here), duration in seconds.
-    """
-    # ========== YOUR CODE HERE: Part 1: refuse what the robot can't or shouldn't do ==========
-    # TODO(student): check the request against `limits` (see MoveLimits) and
-    # return a reason for anything the robot must not do. What can go wrong
-    # with a speed, a duration, and the two together? Every field of MoveLimits
-    # is there for a reason.
-    #
-    # The string you return is *all* Gemini learns about the refusal: say what
-    # was wrong and what the limit is, so it can explain it to the user or pick
-    # a request that works. (Until this is written, every move is refused.)
-    return "move is not implemented yet: TODO(student) check_move in robot/tool_server.py"
-    # ==========================================================================================
-
-
-def list_animations() -> dict[str, float]:
-    """Installed trick recordings: csv stem -> playback duration in seconds."""
-    out = {}
-    for csv in sorted(ANIMATION_DIR.glob("*.csv")):
-        with open(csv) as f:
-            frames = sum(1 for _ in f) - 1
-        if frames > 0:
-            out[csv.stem] = frames / ANIMATION_FRAME_RATE + ANIMATION_BLEND_IN
-    return out
 
 
 class ToolServer:
@@ -156,19 +138,18 @@ class ToolServer:
         self.follow_on = self.node.create_client(Trigger, "activate_person_following")
         self.follow_off = self.node.create_client(Trigger, "deactivate_person_following")
         self.cmd_pub = self.node.create_publisher(Twist, "/llm_cmd_vel", 10)
-        self.anim_pub = self.node.create_publisher(String, "/animation_controller_py/animation_select", 10)
-
-        self.pos_pub = self.node.create_publisher(Float64MultiArray, "/forward_position_controller/commands", 10)
-        self.kp_pub = self.node.create_publisher(Float64MultiArray, "/forward_kp_controller/commands", 10)
-        self.kd_pub = self.node.create_publisher(Float64MultiArray, "/forward_kd_controller/commands", 10)
-        self.joint_pos: dict[str, float] = {}
-        self.node.create_subscription(JointState, "/joint_states", self._on_joints, 10)
+        self.ref_pub = self.node.create_publisher(Float32MultiArray, f"/{WALK_CONTROLLER}/reference_trick", 10)
+        self.walk_since = None  # monotonic time gemini_walk was last activated
 
         self.latest_image: queue.Queue[CompressedImage] = queue.Queue(maxsize=1)
         self.node.create_subscription(CompressedImage, "/camera/image_raw/compressed", self._on_image, 1)
 
         # Clip tricks: request clips and follow what the controller is playing.
         self.clip_trick: Trick | None = None  # the clip trick holding the legs, if any
+        # The clip trick that will be holding the legs once everything queued so far
+        # has run: what a trick action asked for *now* can rely on.
+        self.queued_clip_trick: Trick | None = None
+        self.current_leaves: Trick | None = None  # ... once the running command ends
         self.clip_status: dict[str, tuple[str, bool]] = {}  # controller -> (clip, holding)
         self.clip_pubs: dict[str, object] = {}
         for t in load_tricks().values():
@@ -182,7 +163,6 @@ class ToolServer:
         self.executor.add_node(self.node)
         threading.Thread(target=self.executor.spin, daemon=True).start()
 
-        self.animations = list_animations()
         self.tricks: dict[str, Trick] = load_tricks()
         self.leg_controllers = LEG_CONTROLLERS | {t.controller for t in self.tricks.values() if t.kind == "policy"}
         self.following = False
@@ -192,15 +172,18 @@ class ToolServer:
         self.worker = asyncio.get_event_loop().create_task(self._run_queue())
         # The gamepad e-stop (right-stick press) relaxes the course's joystick
         # controllers and publishes /emergency_stop. The controllers used here
-        # (walking, tricks, recordings) are not on its list, so relax them too.
+        # (walking, tricks) are not on its list, so relax them too.
         self.loop = asyncio.get_event_loop()
         self.node.create_subscription(Empty, "/emergency_stop", self._on_estop, 10)
-        log.info("tool server ready: %d tricks, walking controller %s", len(self.animations), WALKING_CONTROLLER)
+        self.gamepad_estop_at = 0.0  # monotonic time of the last gamepad e-stop
+        # Tilt e-stops: the controller that latched one, until a safe stand-up clears it.
+        self.fallen: str | None = None
+        self.imu: collections.deque = collections.deque()  # (monotonic t, tilt deg, gyro rad/s)
+        self.node.create_subscription(Imu, "/imu_sensor_broadcaster/imu", self._on_imu, 10)
+        self.node.create_subscription(Log, "/rosout", self._on_rosout, 100)
+        log.info("tool server ready: %d tricks, walking controller %s", len(self.tricks), WALKING_CONTROLLER)
 
     # ---------------------------------------------------------------- ROS helpers
-    def _on_joints(self, msg: JointState) -> None:
-        self.joint_pos.update(zip(msg.name, msg.position))
-
     def _on_clip_status(self, controller: str, msg: String) -> None:
         # "<clip> playing|holding frame N queued K"
         parts = msg.data.split()
@@ -213,6 +196,56 @@ class ToolServer:
         except queue.Empty:
             pass
         self.latest_image.put_nowait(msg)
+
+    def _on_imu(self, msg: Imu) -> None:
+        q, w = msg.orientation, msg.angular_velocity
+        # Angle between the body's up axis and the world's: the controllers' tilt check.
+        up = max(-1.0, min(1.0, 1.0 - 2.0 * (q.x * q.x + q.y * q.y)))
+        now = time.monotonic()
+        self.imu.append((now, math.degrees(math.acos(up)), math.sqrt(w.x * w.x + w.y * w.y + w.z * w.z)))
+        while self.imu and self.imu[0][0] < now - SAFE_STILL_S - 0.5:
+            self.imu.popleft()
+
+    def _on_rosout(self, msg: Log) -> None:
+        name = msg.name.rsplit(".", 1)[-1]
+        if msg.msg != ESTOP_LOG or name not in self.leg_controllers:
+            return
+        if time.monotonic() - self.gamepad_estop_at < 2.0:
+            return  # the gamepad e-stop, which relaxes everything itself
+        asyncio.run_coroutine_threadsafe(self._on_fall(name), self.loop)
+
+    async def _on_fall(self, controller: str) -> None:
+        if self.fallen:
+            return
+        self.fallen = controller
+        await self.immediate_stop()
+        self.clip_trick = self.queued_clip_trick = None
+        log.warning("tilt e-stop in %s: the robot fell over; waiting for a safe stand-up", controller)
+
+    def upright(self) -> tuple[bool, str]:
+        """Whether the robot is level and still enough to restart a controller."""
+        now = time.monotonic()
+        samples = list(self.imu)  # the ROS thread keeps appending
+        recent = [s for s in samples if s[0] >= now - SAFE_STILL_S]
+        if not recent or now - recent[-1][0] > 0.2:
+            return False, "no IMU data, so it can't check that the robot is upright"
+        if now - samples[0][0] < SAFE_STILL_S:
+            return False, "not enough IMU data yet"
+        tilt = max(s[1] for s in recent)
+        gyro = max(s[2] for s in recent)
+        if tilt > SAFE_TILT_DEG:
+            return False, f"the robot is tilted {tilt:.0f} degrees (needs under {SAFE_TILT_DEG:.0f}); set it upright on its feet"
+        if gyro > SAFE_GYRO_RAD_S:
+            return False, "the robot is still moving or being handled; let it rest on the ground"
+        return True, f"upright ({tilt:.0f} degrees) and still"
+
+    async def _wait_upright(self) -> tuple[bool, str]:
+        deadline = time.monotonic() + SAFE_WAIT_S
+        while True:
+            ok, why = self.upright()
+            if ok or time.monotonic() > deadline:
+                return ok, why
+            await asyncio.sleep(0.1)
 
     async def _call(self, client, request, timeout: float = 3.0):
         if not client.wait_for_service(timeout_sec=timeout):
@@ -227,13 +260,40 @@ class ToolServer:
         res = await self._call(self.list_client, ListControllers.Request())
         return {c.name: c.state for c in res.controller} if res else {}
 
-    async def _switch(self, activate: list[str], deactivate: list[str]) -> Result:
+    async def _use(self, controller: str | None) -> Result:
+        """Hand the legs to one controller, or to none (relax the motors). Every other
+        leg controller is deactivated in the same switch, so exactly one policy (or
+        nothing) drives the legs."""
+        activate = [controller] if controller else []
+        deactivate = sorted(self.leg_controllers - set(activate))
         states = await self.controller_states()
         if not states:
             return Result(False, "controller_manager is not running; is the robot stack launched?")
-        missing = [c for c in activate if c not in states]
-        if missing:
-            return Result(False, f"controllers not loaded: {missing}")
+        recovered = ""
+        if self.fallen and activate:
+            ok, why = await self._wait_upright()
+            if not ok:
+                return Result(False, f"won't stand up: {why}. ({FELL_MESSAGE})")
+            # Relax every latched controller first: activating one clears its e-stop.
+            latched = [c for c in self.leg_controllers if states.get(c) == "active"]
+            if latched:
+                req = SwitchController.Request()
+                req.deactivate_controllers = latched
+                req.strictness = SwitchController.Request.BEST_EFFORT
+                await self._call(self.switch_client, req)
+                states = await self.controller_states()
+            self.walk_since = None
+            log.info("recovering from the fall in %s: %s", self.fallen, why)
+            self.fallen = None
+            recovered = "recovered from the fall and stood back up; "
+        not_ready = [c for c in activate if states.get(c) not in LOADED]
+        if not_ready:  # the launch's spawner missed it: load it now (a few seconds)
+            log.warning("loading %s (state %s)", not_ready, [states.get(c, "not loaded") for c in not_ready])
+            await asyncio.to_thread(spawn, not_ready)
+            states = await self.controller_states()
+            not_ready = [c for c in activate if states.get(c) not in LOADED]
+            if not_ready:
+                return Result(False, f"could not load controllers {not_ready}; see /tmp/gemini-pupper/robot.log")
         clip_trick = self.clip_trick
         if clip_trick and states.get(clip_trick.controller) == "active" and clip_trick.controller in deactivate:
             self.clip_trick = None
@@ -246,22 +306,32 @@ class ToolServer:
         req = SwitchController.Request()
         req.activate_controllers = [c for c in activate if states[c] != "active"]
         req.deactivate_controllers = [c for c in deactivate if states.get(c) == "active"]
+        if states.get(WALKING_CONTROLLER) == "active" and self.walk_since is None:
+            self.walk_since = time.monotonic() - WALK_READY_S  # active before we started
         if not req.activate_controllers and not req.deactivate_controllers:
-            return Result(True, "already in that mode")
+            if controller == WALKING_CONTROLLER:
+                await self._wait_walk_ready()
+            return Result(True, recovered + "already in that mode")
         req.strictness = SwitchController.Request.STRICT
         res = await self._call(self.switch_client, req)
         if res is None or not res.ok:
-            return Result(False, f"controller switch failed (activate {activate})")
-        return Result(True, "ok")
+            why = "no answer from controller_manager" if res is None else "refused by controller_manager"
+            log.warning("switch %s -> %s: %s", req.deactivate_controllers, req.activate_controllers, why)
+            return Result(False, f"controller switch failed (activate {activate}): {why}")
+        if WALKING_CONTROLLER in req.activate_controllers:
+            self.walk_since = time.monotonic()
+        if WALKING_CONTROLLER in req.deactivate_controllers:
+            self.walk_since = None
+        if controller == WALKING_CONTROLLER:
+            await self._wait_walk_ready()
+        return Result(True, recovered + "ok")
 
-    def _all_but(self, keep: str) -> list[str]:
-        """Every leg and animation controller except ``keep``: what to deactivate
-        when ``keep`` takes the legs."""
-        return sorted((self.leg_controllers - {keep}) | set(ANIMATION_CONTROLLERS))
-
-    async def _walk(self) -> Result:
-        """Hand the legs to the walking policy (standing up if needed)."""
-        return await self._switch([WALKING_CONTROLLER], self._all_but(WALKING_CONTROLLER))
+    async def _wait_walk_ready(self) -> None:
+        """Wait until gemini_walk has eased the legs to standing and faded its
+        policy in. A walk sent before that runs on a half-started controller."""
+        wait = (self.walk_since or time.monotonic()) + WALK_READY_S - time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
 
     def _publish(self, vx: float, vy: float, wz_deg: float) -> None:
         t = Twist()
@@ -271,7 +341,8 @@ class ToolServer:
     # ---------------------------------------------------------------- queue
     async def _run_queue(self) -> None:
         while True:
-            name, coro_fn = await self.commands.get()
+            name, coro_fn, leaves = await self.commands.get()
+            self.current_leaves = leaves
             self.current = asyncio.create_task(coro_fn())
             try:
                 res = await self.current
@@ -284,10 +355,14 @@ class ToolServer:
             finally:
                 self.current = None
 
-    async def _enqueue(self, name: str, coro_fn, duration: float) -> Result:
+    async def _enqueue(self, name: str, coro_fn, duration: float, leaves=None, keeps_clip_trick=False) -> Result:
+        """Queue a command. ``leaves`` is the clip trick it leaves running (None: none);
+        commands that don't touch the legs' state pass keeps_clip_trick."""
+        if not keeps_clip_trick:
+            self.queued_clip_trick = leaves
         now = time.monotonic()
         self.busy_until = max(self.busy_until, now) + duration
-        await self.commands.put((name, coro_fn))
+        await self.commands.put((name, coro_fn, self.queued_clip_trick))
         return Result(True, f"{name} queued; the queue should finish in {self.busy_until - now:.1f} s")
 
     def status(self) -> dict:
@@ -303,90 +378,85 @@ class ToolServer:
         note = await self._leave_follow_mode()
 
         async def run():
-            return await self._walk()
+            return await self._use(WALKING_CONTROLLER)
 
-        return self._noted(note, await self._enqueue("activate walking", run, 1.0))
+        return self._noted(note, await self._enqueue("activate walking", run, WALK_READY_S))
 
     async def deactivate(self) -> Result:
         note = await self._leave_follow_mode()
 
         async def run():
-            return await self._switch([], sorted(self.leg_controllers | set(ANIMATION_CONTROLLERS)))
+            return await self._use(None)
 
         return self._noted(note, await self._enqueue("deactivate", run, 1.0))
 
     async def move(self, vx: float, vy: float, wz_deg: float, duration: float) -> Result:
-        """Walk with a body velocity for a while: vx forward m/s, vy left m/s, wz
-        counter-clockwise deg/s, for ``duration`` seconds.
-
-        (The browser sends right- and clockwise-positive values; server.py flips
-        them to ROS's left- and counter-clockwise-positive convention first.)
-        """
-        problem = check_move(vx, vy, wz_deg, duration)
-        if problem:
-            return Result(False, problem)
+        """vx forward m/s, vy left m/s, wz counter-clockwise deg/s, for duration seconds."""
+        refused = check_move(vx, vy, wz_deg, duration)
+        if refused:
+            return Result(False, refused)
         note = await self._leave_follow_mode()
 
+        if self.fallen:
+            return Result(False, FELL_MESSAGE)
+
         async def run():
-            res = await self._walk()
+            if self.fallen:
+                return Result(False, FELL_MESSAGE)
+            res = await self._use(WALKING_CONTROLLER)
             if not res.ok:
                 return res
-            # ========== YOUR CODE HERE: Part 1: drive the walking policy ==========
-            # TODO(student): make the robot walk at (vx, vy, wz_deg) for `duration`
-            # seconds, then stand still, and return a Result saying what it did.
-            # self._publish sends one velocity command. cmd_vel_mux (the node that
-            # lets the joystick outrank Gemini) drops a source that has been quiet
-            # for 500 ms, so a single message is not enough. Wait with
-            # `await asyncio.sleep(...)`, never time.sleep(): the server runs on
-            # one event loop, and a blocking sleep freezes everything, including
-            # immediate_stop.
+            # ========== YOUR CODE HERE: Part 1: walk ==========
+            # TODO(student): walk at (vx, vy, wz_deg) for `duration` seconds, then
+            # stand still, and return a Result that says what it did.
+            # - self._publish(vx, vy, wz_deg) sends one speed command.
+            # - One command is not enough: cmd_vel_mux (which lets the joystick win
+            #   over Gemini) drops Gemini if it is quiet for 0.5 s. Send about
+            #   LLM_CMD_RATE commands per second.
+            # - Wait with `await asyncio.sleep(...)`, never time.sleep(): a blocking
+            #   sleep freezes the whole server, including the stop tool.
+            # - If self.fallen turns true while walking, stop and return
+            #   Result(False, FELL_MESSAGE).
             raise NotImplementedError("move: TODO(student) in robot/tool_server.py")
-            # =======================================================================
+            # ==================================================
 
         return self._noted(note, await self._enqueue(f"move vx={vx} vy={vy} wz={wz_deg} {duration}s", run, duration))
 
-    async def animation(self, csv_name: str) -> Result:
-        if csv_name not in self.animations:
-            return Result(False, f"unknown trick recording {csv_name}")
-        duration = self.animations[csv_name]
-        note = await self._leave_follow_mode()
-
-        async def run():
-            res = await self._switch(ANIMATION_CONTROLLERS, sorted(self.leg_controllers))
-            if not res.ok:
-                return res
-            self.anim_pub.publish(String(data=csv_name))
-            await asyncio.sleep(duration)
-            return Result(True, f"played {csv_name}; the robot now holds the trick's final pose")
-
-        return self._noted(note, await self._enqueue(f"trick {csv_name}", run, duration))
-
-    async def custom_trick(self, name: str) -> Result:
-        """Play a trick from <repo>/tricks: a replay (joint CSV) or a policy (trick controller)."""
+    async def trick(self, name: str) -> Result:
+        """Play a trick from <repo>/tricks: switch to its policy, or feed its reference
+        to the walking policy."""
         trick = self.tricks.get(name)
         if trick is None:
-            return Result(False, f"unknown custom trick {name}")
+            return Result(False, f"unknown trick '{name}'; available: {list(self.tricks)}")
         note = await self._leave_follow_mode()
         if trick.kind == "policy":
             run = lambda: self._play_policy_trick(trick)  # noqa: E731
         else:
-            run = lambda: self._play_replay_trick(trick)  # noqa: E731
-        return self._noted(note, await self._enqueue(f"trick {name}", run, trick.total_time))
+            run = lambda: self._play_reference_trick(trick)  # noqa: E731
+        leaves = trick if trick.clips else None
+        return self._noted(note, await self._enqueue(f"trick {name}", run, trick.total_time, leaves=leaves))
 
     async def _play_policy_trick(self, trick: Trick) -> Result:
         if trick.clips and self.clip_trick is trick:
             return Result(True, f"already doing {trick.name}")
-        res = await self._switch([trick.controller], self._all_but(trick.controller))
+        if not trick.clips and (await self.controller_states()).get(trick.controller) == "active":
+            # Still holding this trick's end pose: restart the controller so it plays again.
+            res = await self._use(None)
+            if not res.ok:
+                return res
+        res = await self._use(trick.controller)
         if not res.ok:
             return res
         await asyncio.sleep(trick.total_time + 0.3)
+        if self.fallen:
+            return Result(False, f"{trick.name} ended in a fall: {FELL_MESSAGE}")
         if trick.clips:  # stays in its looping clip until asked for an action
             self.clip_trick = trick
             actions = ", ".join(trick.actions) or "none"
             leave = f" Any other motion first plays {trick.exit_clip}." if trick.exit_clip else ""
             return Result(True, f"played {trick.name}; it now stays {trick.end_pose}. Trick actions: {actions}.{leave}")
         if trick.end_pose == "standing":  # hand back to the walking policy
-            res = await self._walk()
+            res = await self._use(WALKING_CONTROLLER)
             if not res.ok:
                 return Result(False, f"played {trick.name} but could not return to walking: {res.message}")
             return Result(True, f"played {trick.name}; back on the walking policy")
@@ -400,26 +470,24 @@ class ToolServer:
         return {(clip if names.count(clip) == 1 else f"{t.name}.{clip}"): (t, clip) for t, clip in pairs}
 
     async def trick_action(self, action: str) -> Result:
-        """Play one of a clip trick's actions (a move from the pose the trick holds)."""
+        """Play one of a clip trick's actions (e.g. shake a paw while sitting)."""
         # ========== YOUR CODE HERE: Part 2: trick actions ==========
-        # TODO(student): the voice side of a clip trick. A clip trick stays in its
-        # looping clip until asked for something; this plays one of its `actions`
-        # (trick.yaml) on request. Things you have to get right:
-        #   - which actions exist (self.action_ids() maps the ids Gemini uses to
-        #     (trick, clip)), and what Gemini hears when it asks for one that
-        #     doesn't;
-        #   - preconditions: an action only makes sense while its trick is
-        #     running (self.controller_states() tells you which controllers are
-        #     active; trick.controller is the trick's). Think about *when* you
-        #     check: when Gemini calls the tool, when the queue reaches it, or
-        #     both. What goes wrong with each?
-        #   - playing it: self._play_clip(trick, clip) requests the clip and waits
-        #     until the controller has played it through. Run it through the
-        #     queue (self._enqueue), like every other motion, with an honest
-        #     duration estimate (trick.clip_length);
-        #   - leaving: the trick's exit_clip ends standing. After it, nothing is
-        #     holding a pose any more (self.clip_trick) and the walking policy
-        #     should take the legs back (self._walk()).
+        # TODO(student): play one of a clip trick's `actions` (from its trick.yaml).
+        # Get these right:
+        # - Which actions exist: self.action_ids() maps an action name to
+        #   (trick, clip). An unknown name should fail with a message that lists
+        #   the real ones.
+        # - When it is allowed: only while its trick is holding its pose. Check
+        #   right away (self.queued_clip_trick is the clip trick that will be
+        #   running once the queue gets there), and check again when the queue
+        #   reaches it (self.controller_states(); trick.controller is the
+        #   trick's controller). Why both?
+        # - Playing it: self._play_clip(trick, clip) plays the clip and waits for
+        #   it. Run it through the queue with self._enqueue, like every motion,
+        #   with a duration estimate (trick.clip_length). Pass
+        #   leaves=None for the exit clip, else leaves=trick.
+        # - The trick's exit_clip ends standing: after it, set self.clip_trick to
+        #   None and give the legs back to walking: self._use(WALKING_CONTROLLER).
         return Result(False, "trick actions are not implemented yet: TODO(student) in robot/tool_server.py")
         # ============================================================
 
@@ -442,48 +510,25 @@ class ToolServer:
             await asyncio.sleep(0.05)
         return Result(True, f"played {clip}")
 
-    async def _play_replay_trick(self, trick: Trick) -> Result:
-        import csv
-
-        with open(trick.path) as f:
-            rows = list(csv.DictReader(f))
-        times = [float(r["timestamp_sec"]) - float(rows[0]["timestamp_sec"]) for r in rows]
-        frames = [[float(r[j]) for j in JOINT_NAMES] for r in rows]
-        start = [self.joint_pos.get(j) for j in JOINT_NAMES]
-        if any(v is None for v in start):
-            return Result(False, "no /joint_states yet; is the robot stack running?")
-        res = await self._switch(ANIMATION_CONTROLLERS, sorted(self.leg_controllers))
+    async def _play_reference_trick(self, trick: Trick) -> Result:
+        """Feed a reference (e.g. the jump) to the running walking policy, standing still."""
+        res = await self._use(WALKING_CONTROLLER)  # waits until the policy is ready
         if not res.ok:
             return res
-        gains = lambda v: Float64MultiArray(data=[v] * len(JOINT_NAMES))  # noqa: E731
-        t0 = time.monotonic()
-        i = 0
-        while True:
-            t = time.monotonic() - t0
-            if t < REPLAY_BLEND_S:  # blend from where the legs are to the first frame
-                a = t / REPLAY_BLEND_S
-                target = [s0 + a * (f0 - s0) for s0, f0 in zip(start, frames[0])]
-            else:
-                tm = t - REPLAY_BLEND_S
-                if tm >= times[-1]:
-                    break
-                while i + 1 < len(times) and times[i + 1] <= tm:
-                    i += 1
-                a = (tm - times[i]) / max(times[i + 1] - times[i], 1e-6)
-                target = [p + a * (q - p) for p, q in zip(frames[i], frames[i + 1])]
-            self.kp_pub.publish(gains(REPLAY_KP))
-            self.kd_pub.publish(gains(REPLAY_KD))
-            self.pos_pub.publish(Float64MultiArray(data=target))
-            await asyncio.sleep(1.0 / REPLAY_RATE)
-        self.pos_pub.publish(Float64MultiArray(data=frames[-1]))
-        return Result(True, f"played {trick.name}; the robot holds the trick's final pose")
+        self._publish(0, 0, 0)
+        await asyncio.sleep(0.5)  # settle, standing still
+        self.ref_pub.publish(Float32MultiArray(data=reference_message_data(trick)))
+        await asyncio.sleep(trick.total_time)
+        if self.fallen:
+            return Result(False, f"{trick.name} ended in a fall: {FELL_MESSAGE}")
+        return Result(True, f"played {trick.name}; standing on the walking policy")
 
     async def wait(self, duration: float) -> Result:
         async def run():
             await asyncio.sleep(duration)
             return Result(True, f"waited {duration} s")
 
-        return await self._enqueue(f"wait {duration}s", run, duration)
+        return await self._enqueue(f"wait {duration}s", run, duration, keeps_clip_trick=True)
 
     async def _stop_following(self) -> None:
         if self.following:
@@ -491,19 +536,20 @@ class ToolServer:
             self.following = False
 
     async def _leave_follow_mode(self) -> str:
-        """Called by every motion tool before it queues anything.
+        """Every motion tool calls this before it queues anything.
 
-        Returns a note for the front of that tool's result (see _noted), or "".
+        Returns a note for the front of that tool's result, or "".
         """
-        # ========== YOUR CODE HERE: Part 1: follow mode ends on motion ==========
-        # TODO(student): the follow-mode rule. Questions and conversation keep
-        # following; any *motion* (walk, turn, trick, stand up, lie down) ends
-        # it, right away rather than when the queue gets to it, and Pupper says
-        # so before moving ("Let me stop following you and ..."). Gemini can only
-        # say that if the tool result tells it. self.following is the state;
-        # self._stop_following() switches the person follower off.
+        # ========== YOUR CODE HERE: Part 1: motion ends follow mode ==========
+        # TODO(student): the follow-mode rule. Talking and questions keep
+        # following. Any motion (walk, turn, trick, stand up, lie down) ends it,
+        # right away, not when the queue gets to it. Gemini should say so before
+        # moving ("Let me stop following you and ..."), and it can only do that
+        # if the tool result tells it.
+        # self.following is the state; await self._stop_following() turns the
+        # person follower off; self._publish(0, 0, 0) stops the robot.
         return ""
-        # =========================================================================
+        # ======================================================================
 
     @staticmethod
     def _noted(note: str, res: Result) -> Result:
@@ -519,7 +565,8 @@ class ToolServer:
         await self.clear_queue()
         if self.current and not self.current.done():
             self.current.cancel()
-        res = await self._walk()
+        res = await self._use(WALKING_CONTROLLER)
+        self.queued_clip_trick = None
         if not res.ok:
             return res
         r = await self._call(self.follow_on, Trigger.Request())
@@ -534,17 +581,21 @@ class ToolServer:
             self.commands.get_nowait()
             n += 1
         self.busy_until = time.monotonic()
+        running = self.current is not None and not self.current.done()
+        self.queued_clip_trick = self.current_leaves if running else self.clip_trick
         return Result(True, f"cleared {n} queued commands")
 
     def _on_estop(self, _msg: Empty) -> None:
+        self.gamepad_estop_at = time.monotonic()
+        self.fallen = None  # a person stopped it on purpose; standing up is their call
         asyncio.run_coroutine_threadsafe(self.emergency_stop(), self.loop)
 
     async def emergency_stop(self) -> Result:
         """Gamepad e-stop: cancel everything and relax every leg controller."""
         await self.immediate_stop()
-        self.clip_trick = None  # no exit clip: the motors just relax
+        self.clip_trick = self.queued_clip_trick = None  # no exit clip: the motors just relax
         states = await self.controller_states()
-        active = [c for c in sorted(self.leg_controllers | set(ANIMATION_CONTROLLERS)) if states.get(c) == "active"]
+        active = [c for c in sorted(self.leg_controllers) if states.get(c) == "active"]
         if active:
             req = SwitchController.Request()
             req.deactivate_controllers = active
@@ -559,40 +610,23 @@ class ToolServer:
         cleared = await self.clear_queue()
         if self.current and not self.current.done():
             self.current.cancel()
+        self.queued_clip_trick = self.clip_trick  # nothing else is coming
         await self._stop_following()
         self._publish(0, 0, 0)
         return Result(True, f"stopped; {cleared.message}")
-
-    async def dance(self, moves: list[dict]) -> Result:
-        """Part 3: play a list of dance moves, in order, with timing.
-
-        ``moves`` is what the browser sends, for example
-        ``[{"move": "sway", "hold_s": 0.5}, {"move": "bow", "hold_s": 0.0}]``.
-        You may change that shape; server.py's DanceStep and your dance tool's
-        schema in services/geminiLive.ts must change with it.
-        """
-        # ========== YOUR CODE HERE: Part 3: the dance tool ==========
-        # TODO(student): your dance is a clip trick (tricks/<DANCE_TRICK>/), so
-        # Part 2's machinery can sequence its moves. Validate the *whole* request
-        # before anything moves (unknown moves, bad timing, too long in total)
-        # and refuse it with a message Gemini can act on; then queue the dance so
-        # it starts the trick if it isn't running, plays the moves in order with
-        # their timing, and ends standing on the walking policy.
-        return Result(False, "dance is not implemented yet: TODO(student) in robot/tool_server.py")
-        # ============================================================
 
     async def mode(self) -> Result:
         states = await self.controller_states()
         if not states:
             return Result(False, "controller_manager is not running")
-        walking = states.get(WALKING_CONTROLLER) == "active"
-        trick = states.get("forward_position_controller") == "active"
-        clip_trick = self.clip_trick if self.clip_trick and states.get(self.clip_trick.controller) == "active" else None
+        trick = next((t for t in self.tricks.values() if t.kind == "policy" and states.get(t.controller) == "active"), None)
+        if self.fallen:
+            return Result(True, f"mode: fallen over (tilt e-stop in {self.fallen}). {FELL_MESSAGE}")
         mode = (
             "following" if self.following
-            else "walking" if walking
-            else f"{clip_trick.name} ({clip_trick.end_pose}; actions: {', '.join(clip_trick.actions)})" if clip_trick
-            else "trick pose" if trick
+            else "walking" if states.get(WALKING_CONTROLLER) == "active"
+            else f"{trick.name} ({trick.end_pose}; actions: {', '.join(trick.actions)})" if trick and trick.actions
+            else f"holding the end of {trick.name} ({trick.end_pose})" if trick
             else "motors off"
         )
         return Result(True, f"mode: {mode}")

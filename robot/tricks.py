@@ -1,19 +1,20 @@
-"""Custom tricks: everything under <repo>/tricks/<name>/trick.yaml.
+"""Tricks: everything under <repo>/tricks/<name>/trick.yaml.
 
-(Provided infrastructure: you should not need to change this file.)
+Every trick is played by a policy, so playing one is a controller switch:
 
-Two kinds, both designed with pupper-mjlab's motion design tools:
-
-  type: replay   a joint trajectory (``motion``: a CSV with timestamp_ns,
-                 timestamp_sec and the 12 joint names, absolute radians),
-                 played open loop through the position controllers, like the
-                 13 built-in tricks.
   type: policy   a tracking policy (``policy``: the JSON from pupper-mjlab's
                  export_trick.py, which carries its own reference motion).
                  The launch file loads one inactive controller per policy
-                 trick; playing the trick switches to it and back.
+                 trick; playing the trick switches to it and back. The 13
+                 tricks recorded in the Pupper monorepo are policies too
+                 (tricks/monorepo_tricks.py turns a recording into a motion).
+  type: reference  a joint-offset reference (``reference``: JSON with
+                 playback_s, active_s, cross_fade_s and an n x 12 table) played
+                 once through the walking policy, the way the joystick's game
+                 mode plays the jump. Only references the walking policy was
+                 trained on work (the default policy knows its jump).
 
-trick.yaml fields: description (what Gemini reads), type, motion or policy,
+trick.yaml fields: description (what Gemini reads), type, policy or reference,
 start_pose / end_pose (standing, sitting or lying), and for policies an optional
 max_body_angle_deg (the tilt e-stop while the trick plays; default 60).
 
@@ -33,7 +34,6 @@ This module has no ROS imports, so the launch file can use it too.
 
 from __future__ import annotations
 
-import csv
 import json
 import math
 import re
@@ -49,18 +49,19 @@ TRICK_INIT_S = 0.5
 TRICK_FADE_S = 1.0
 
 # The walking controller Gemini drives: the course default policy with the
-# running cap lifted. The joystick's X controller (neural_controller_default)
-# keeps its walk-only caps.
+# running cap lifted and reference tricks enabled. The joystick's X controller
+# (neural_controller_default) keeps its walk-only caps.
 WALK_CONTROLLER = "gemini_walk"
 WALK_SPEED_CAP = 1.5  # m/s, forward, backward and (clipped by the policy to 0.5) sideways
+REFERENCE_SETTLE_S = 1.2  # after a reference trick's playback, time to land and settle
 
 
 @dataclass
 class Trick:
   name: str
   description: str
-  kind: str  # "policy" or "replay"
-  path: Path  # policy JSON or motion CSV
+  kind: str  # "policy" or "reference"
+  path: Path  # policy JSON or reference JSON
   duration: float  # seconds of motion
   start_pose: str = "standing"
   end_pose: str = "standing"
@@ -98,16 +99,11 @@ class Trick:
   @property
   def total_time(self) -> float:
     """How long playing the trick takes, including the controller's blend-in."""
+    if self.kind == "reference":
+      return self.duration + REFERENCE_SETTLE_S
     if self.clips:  # a clip trick is "played" once its opening clips are done
       return TRICK_INIT_S + TRICK_FADE_S + self.intro_duration()
-    lead_in = TRICK_INIT_S + TRICK_FADE_S if self.kind == "policy" else 1.0
-    return lead_in + self.duration
-
-
-def _csv_duration(path: Path) -> float:
-  with open(path) as f:
-    rows = list(csv.DictReader(f))
-  return float(rows[-1]["timestamp_sec"]) - float(rows[0]["timestamp_sec"])
+    return TRICK_INIT_S + TRICK_FADE_S + self.duration
 
 
 def load_tricks(trick_dir: Path = TRICK_DIR) -> dict[str, Trick]:
@@ -122,11 +118,11 @@ def load_tricks(trick_dir: Path = TRICK_DIR) -> dict[str, Trick]:
       info = json.loads(path.read_text())["trick"]
       duration = float(info["duration_s"])
       clips, fps = list(info.get("clips", [])), float(info.get("fps", 50.0))
-    elif kind == "replay":
-      path = spec_path.parent / spec["motion"]
-      duration = _csv_duration(path)
+    elif kind == "reference":
+      path = spec_path.parent / spec["reference"]
+      duration = float(json.loads(path.read_text())["playback_s"])
     else:
-      raise ValueError(f"{spec_path}: type must be policy or replay, not {kind!r}")
+      raise ValueError(f"{spec_path}: type must be policy or reference, not {kind!r}")
     actions = {str(k): str(v).strip() for k, v in (spec.get("actions") or {}).items()}
     exit_clip = spec.get("exit_clip")
     clip_names = {c["name"] for c in clips}
@@ -152,7 +148,7 @@ def load_tricks(trick_dir: Path = TRICK_DIR) -> dict[str, Trick]:
 
 def controller_params(trick: Trick, base: dict) -> dict:
   """Parameters for a trick's controller: the course default controller's, with the
-  trick's policy, a short blend-in, its tilt limit, and the gamepad's extra buttons off."""
+  trick's policy, a short blend-in, its tilt limit, and no joystick game features."""
   params = dict(base)
   params.pop("chord_partner", None)
   params.update(
@@ -167,9 +163,20 @@ def controller_params(trick: Trick, base: dict) -> dict:
   return params
 
 
+def reference_message_data(trick: Trick) -> list[float]:
+  """The ~/reference_trick message: playback_s, active_s, cross_fade_s, then the table."""
+  ref = json.loads(trick.path.read_text())
+  data = [float(ref["playback_s"]), float(ref["active_s"]), float(ref["cross_fade_s"])]
+  for row in ref["table"]:
+    if len(row) != 12:
+      raise ValueError(f"{trick.path}: every table row needs 12 joint offsets")
+    data.extend(float(v) for v in row)
+  return data
+
+
 def walk_controller_params(base: dict) -> dict:
-  """The gemini_walk controller: the course default controller, able to run, with
-  the gamepad's extra buttons off."""
+  """The gemini_walk controller: the course default controller, able to run and to
+  play reference tricks, with no joystick game features."""
   params = dict(base)
   params.pop("chord_partner", None)
   params.update(
@@ -177,5 +184,6 @@ def walk_controller_params(base: dict) -> dict:
     speed_cap=WALK_SPEED_CAP,
     max_vx_forward=WALK_SPEED_CAP,
     max_vx_backward=WALK_SPEED_CAP,
+    reference_tricks=True,
   )
   return params

@@ -1,8 +1,0 @@
-# The same sit, played open loop as a joint trajectory (motion_design.py's
-# save_robot_csv). In simulation plain replay wobbles on the hind-foot steps but
-# stays up; compare it with the trained "sit" on the robot.
-description: The dog sit played open loop from a joint recording (no policy); compare with sit.
-type: replay
-motion: motion.csv
-start_pose: standing
-end_pose: standing

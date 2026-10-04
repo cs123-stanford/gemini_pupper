@@ -15,20 +15,21 @@ free_port() {  # stop whatever is serving port 8000 (an older robot server)
 }
 ROS="source /opt/ros/jazzy/setup.bash; source $HOME/pupperv3-monorepo/ros2_ws/install/local_setup.bash; export ROS_LOCALHOST_ONLY=1"
 
-[ -f "$REPO/dist/index.html" ] || { echo "Missing $REPO/dist: build the web app first (npm run build) and copy dist/ here"; exit 1; }
+[ -f "$REPO/dist/index.html" ] || { echo "Missing $REPO/dist: run robot/setup.sh first (it builds the web app)"; exit 1; }
 if [ $KIOSK = 1 ] && [ ! -s "$KEY_FILE" ]; then
-  echo "Missing $KEY_FILE. Create it with:  mkdir -p $(dirname $KEY_FILE) && (umask 077; cat > $KEY_FILE)"; exit 1
+  echo "Missing $KEY_FILE. Run robot/setup.sh, or create it with:  mkdir -p $(dirname $KEY_FILE) && (umask 077; cat > $KEY_FILE)"; exit 1
 fi
 
 if pgrep -f "[r]os2_control_node" >/dev/null; then
   echo "[1/3] robot stack already running"
 else
-  echo "[1/3] starting robot stack (about 40 s; log $LOG/robot.log)"
+  echo "[1/3] starting robot stack (about a minute; log $LOG/robot.log)"
+  rm -f $LOG/controllers_ready
   setsid nohup bash -c "$ROS; exec ros2 launch $HERE/launch/gemini_pupper.launch.py" > $LOG/robot.log 2>&1 < /dev/null &
-  for i in $(seq 1 90); do
-    bash -c "$ROS; timeout 5 ros2 control list_controllers 2>/dev/null" | grep -q "forward_kd_controller" && break
-    sleep 1
-  done
+  # spawn_controllers.py writes this once gemini_walk and every trick controller is loaded
+  for i in $(seq 1 240); do [ -f $LOG/controllers_ready ] && break; sleep 1; done
+  if [ -f $LOG/controllers_ready ]; then echo "      $(cat $LOG/controllers_ready)"
+  else echo "      controllers still loading after 4 min; see $LOG/robot.log"; fi
 fi
 
 echo "[2/3] starting robot server on localhost:8000 (log $LOG/server.log)"

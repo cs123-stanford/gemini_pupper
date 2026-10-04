@@ -2,9 +2,6 @@ import { MoveCommand, SystemStatus } from "../types";
 import { robotBaseUrl } from "../constants";
 
 // This service talks to the Python FastAPI backend running on the robot
-// (robot/server.py). Every POST returns {success, message}: pass it on to Gemini
-// as the tool result. (Provided plumbing: the tools themselves are yours, in
-// geminiLive.ts.)
 class RobotBridge {
   readonly baseUrl: string;
 
@@ -104,6 +101,16 @@ class RobotBridge {
     return this.request('/animation', 'POST', { animation_name: name });
   }
 
+  /** Gemini's system prompt and tool declarations (robot/prompt.md, robot/tools.py). */
+  async getTools() {
+    return this.request('/tools', 'GET');
+  }
+
+  /** Run one of Gemini's tools on the robot. Returns {success, message}. */
+  async callTool(name: string, args: Record<string, unknown>) {
+    return this.request(`/tools/${encodeURIComponent(name)}`, 'POST', args);
+  }
+
   async getLimits() {
     return this.request('/limits', 'GET');
   }
@@ -114,11 +121,6 @@ class RobotBridge {
 
   async trickAction(action: string) {
     return this.request('/trick_action', 'POST', { action });
-  }
-
-  /** Part 3: POST /dance with your list of moves (see robot/server.py DanceStep). */
-  async dance(moves: { move: string; hold_s?: number }[]) {
-    return this.request('/dance', 'POST', { moves });
   }
 
   async getTrickActions() {
@@ -140,6 +142,10 @@ class RobotBridge {
   async setFollowMode(enabled: boolean) {
     const endpoint = enabled ? '/following/activate' : '/following/deactivate';
     return this.request(endpoint, 'POST');
+  }
+
+  async analyzeCamera(prompt: string) {
+    return this.request('/camera/analyze', 'POST', { prompt });
   }
 }
 
