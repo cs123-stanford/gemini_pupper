@@ -73,21 +73,31 @@ async def play_trick(robot: Robot, name: str) -> Result:
     return await behaviors.play_trick(robot, name)
 
 
-# ============================================================ Part 2: move and turn
-# TODO 4: write what Gemini reads about move and turn (the descriptions and every
-# parameter's description), and their bodies.
+# ============================================================ Part 2: turn, then move
+# TODO 4: write turn first, then move: what Gemini reads (the description and every
+# parameter's description) and their bodies.
+#   - turn is the warm-up: one number to work out (which way), one call. It shows
+#     you the whole path: Gemini's words -> numbers -> behaviors.walk -> the robot.
+#   - move is the real challenge: four parameters, defaults, and the "run" rule.
 #   - Put the robot's real limits in the words: LIMITS.vx_max and the others
 #     (robot_api.py), RUN_MIN_SPEED, and the defaults. Add ENDS_FOLLOW.
-#   - The body turns direction/run/speed/duration into vx (forward) and vy (left)
-#     in m/s, and calls behaviors.walk(robot, vx, vy, 0.0, duration). Default
-#     speed 0.4 m/s.
-#   - "Run" means RUN_MIN_SPEED (1.0 m/s) or faster, forward or backward (sideways
-#     never runs; default RUN_DEFAULT_SPEED). Make sure of that here, in code, not
-#     only in the description.
-#   - turn turns in place at TURN_SPEED deg/s for as long as `angle` takes:
-#     behaviors.walk(robot, 0.0, 0.0, wz_deg, seconds). Left is positive.
-#   Test: python3 robot/test_tools.py todo4
+#   Test: python3 robot/test_tools.py todo4  (turn is checked first, on its own)
 # ========== TODO 4: YOUR CODE HERE ==========
+@tool(
+    "TODO 4: describe the turn tool for Gemini.",
+    direction=Param("string", "TODO 4", enum=["left", "right"]),
+    angle=Param("number", "TODO 4", required=False),
+)
+async def turn(robot: Robot, direction: str, angle: float = 45.0) -> Result:
+    # Turn in place: no forward or sideways speed, just a turning speed, for as long
+    # as the angle takes.
+    # 1. wz_deg: +TURN_SPEED to the left (counter-clockwise), -TURN_SPEED to the right.
+    # 2. How long it takes: seconds = abs(angle) / TURN_SPEED
+    #    (90 degrees at 60 deg/s takes 1.5 s)
+    # 3. return await behaviors.walk(robot, 0.0, 0.0, wz_deg, seconds)
+    return not_written("TODO 4", "turn in robot/tools.py")
+
+
 @tool(
     "TODO 4: describe the move tool for Gemini.",
     direction=Param("string", "TODO 4", enum=["forward", "backward", "left", "right"]),
@@ -102,25 +112,20 @@ async def move(
     speed: float | None = None,
     duration: float = 1.5,
 ) -> Result:
-    # 1. The speed. Running (run is True, and not sideways): at least RUN_MIN_SPEED,
-    #    or RUN_DEFAULT_SPEED if no speed was given. Otherwise: speed, or 0.4 if none was given.
-    #    (max(a, b) gives the bigger of two numbers.)
-    # 2. vx (forward): +speed forward, -speed backward, 0.0 sideways.
-    #    vy (LEFT is +): +speed left, -speed right, 0.0 forward or backward.
+    # Gemini may leave out run, speed and duration (then they have the defaults above:
+    # speed is None when Gemini gave none). Work out ONE speed, then split it into vx and vy.
+    # 1. The speed:
+    #    - running (run is True AND the direction is forward or backward): at least
+    #      RUN_MIN_SPEED; if Gemini gave no speed, RUN_DEFAULT_SPEED.
+    #      (max(a, b) is the bigger of two numbers: max(0.6, RUN_MIN_SPEED) is 1.0.)
+    #    - otherwise (walking, or any sideways move): speed, or 0.4 if Gemini gave none.
+    # 2. Split it by direction (the robot's convention: +x forward, +y LEFT):
+    #        forward: vx = +speed, vy = 0      backward: vx = -speed, vy = 0
+    #        left:    vx = 0, vy = +speed      right:    vx = 0, vy = -speed
     # 3. return await behaviors.walk(robot, vx, vy, 0.0, duration)
+    # Examples: move("forward") -> vx 0.4 | move("backward", run=True) -> vx -1.2 |
+    #   move("forward", run=True, speed=0.6) -> vx 1.0 | move("right", run=True) -> vy -0.4
     return not_written("TODO 4", "move in robot/tools.py")
-
-
-@tool(
-    "TODO 4: describe the turn tool for Gemini.",
-    direction=Param("string", "TODO 4", enum=["left", "right"]),
-    angle=Param("number", "TODO 4", required=False),
-)
-async def turn(robot: Robot, direction: str, angle: float = 45.0) -> Result:
-    # 1. wz_deg: +TURN_SPEED to the left (counter-clockwise), -TURN_SPEED to the right.
-    # 2. How long it takes: seconds = abs(angle) / TURN_SPEED
-    # 3. return await behaviors.walk(robot, 0.0, 0.0, wz_deg, seconds)
-    return not_written("TODO 4", "turn in robot/tools.py")
 # ====================================
 
 

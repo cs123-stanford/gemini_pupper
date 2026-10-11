@@ -538,62 +538,68 @@ async def todo3() -> None:
 
 
 async def todo4() -> None:
-    print("TODO 4: the move and turn tools")
+    print("TODO 4: the turn tool, then the move tool")
     rig = Rig()
     try:
-        described(rig, ["move", "turn"], "TODO 4")
-        decls = {d["name"]: d for d in tools.declarations(rig.ts)}
-        if "TODO" not in json.dumps(decls.get("move", {})):
-            text = json.dumps(decls.get("move", {}))
-            check("move's words give the real speed limit (LIMITS.vx_max)", str(LIMITS.vx_max) in text)
-            check("... and say that it ends follow mode", "follow" in text.lower())
-
-        res = await rig.call("move", direction="forward", speed=0.4, duration=1.0)
-        if unwritten(res):
-            skip(f"{unwritten(res)} is not written yet (the move tool needs TODO 3 and TODO 4)")
-            return
-        sent = walk_twists(rig)
-        check("move forward sends +x", bool(sent) and all(m.linear.x > 0 and abs(m.linear.y) < 1e-9 for m in sent),
-              f"result {res}; sent {[(round(m.linear.x, 2), round(m.linear.y, 2)) for m in sent[:3]]}")
-        rig.robot.published.clear()
-        await rig.call("move", direction="backward", speed=0.4, duration=1.0)
-        sent = walk_twists(rig)
-        check("move backward sends -x", bool(sent) and all(m.linear.x < 0 for m in sent),
-              f"x speeds sent: {sorted({round(m.linear.x, 2) for m in sent})}")
-        rig.robot.published.clear()
-        await rig.call("move", direction="left", speed=0.3, duration=1.0)
-        sent = walk_twists(rig)
-        check("move left sends +y (the robot's left)", bool(sent) and all(m.linear.y > 0 for m in sent),
-              f"y speeds sent: {sorted({round(m.linear.y, 2) for m in sent})}")
-        rig.robot.published.clear()
-        res = await rig.call("move", direction="forward", run=True, speed=0.6, duration=1.0)
-        sent = walk_twists(rig)
-        check("run means at least 1.0 m/s, even if a slower speed is asked for",
-              bool(sent) and min(m.linear.x for m in sent) >= 1.0 - 1e-9,
-              f"result {res}; forward speeds sent: {sorted({round(m.linear.x, 2) for m in sent})}")
-        rig.robot.published.clear()
-        res = await rig.call("move", direction="forward", duration=1.0)
-        sent = walk_twists(rig)
-        check("move without a speed walks at a sensible default (0.2-0.5 m/s)",
-              bool(sent) and all(0.2 <= m.linear.x <= 0.5 for m in sent),
-              f"result {res}; forward speeds sent: {sorted({round(m.linear.x, 2) for m in sent})}")
-        res = await rig.call("move", direction="forward", speed=1.5, duration=10.0)
-        check("a move the robot refuses comes back as a failure with the reason",
-              res.ok is False and "m" in res.message, f"got {res}")
-
-        rig.robot.published.clear()
+        # turn first: the warm-up.
+        described(rig, ["turn"], "TODO 4 (turn)")
         res = await rig.call("turn", direction="left", angle=90)
+        if unwritten(res):
+            skip(f"{unwritten(res)} is not written yet (the turn tool needs TODO 3 and TODO 4)")
+            return
         twists = rig.robot.twists()
         yaw = sum(m.angular.z * (b[0] - a[0]) for (a, b), m in zip(zip(twists, twists[1:]), (t[1] for t in twists)))
         check("turn left turns counter-clockwise (+z)", any(m.angular.z > 0 for _, m in twists),
               f"result {res}; turn rates sent: {sorted({round(m.angular.z, 2) for _, m in twists})}")
         check("... by about the angle asked for (90 deg)", 70 <= math.degrees(yaw) <= 110,
               f"turned about {math.degrees(yaw):.0f} deg")
+        check("... in place (no forward or sideways speed)",
+              all(abs(m.linear.x) + abs(m.linear.y) < 1e-9 for _, m in twists))
         rig.robot.published.clear()
         await rig.call("turn", direction="right", angle=90)
         twists = rig.robot.twists()
         check("turn right turns clockwise (-z)", any(m.angular.z < 0 for _, m in twists),
               f"turn rates sent: {sorted({round(m.angular.z, 2) for _, m in twists})}")
+
+        # move: the real challenge.
+        if described(rig, ["move"], "TODO 4 (move)"):
+            text = json.dumps({d["name"]: d for d in tools.declarations(rig.ts)}["move"])
+            check("move's words give the real speed limit (LIMITS.vx_max)", str(LIMITS.vx_max) in text)
+            check("... and say that it ends follow mode", "follow" in text.lower())
+        rig.robot.published.clear()
+        res = await rig.call("move", direction="forward", duration=1.0)
+        if unwritten(res):
+            skip(f"{unwritten(res)} is not written yet (the move tool)")
+            return
+
+        async def sent(**args):
+            rig.robot.published.clear()
+            res = await rig.call("move", duration=1.0, **args)
+            return res, walk_twists(rig)
+
+        res, ts = await sent(direction="forward")
+        check('move("forward") walks forward at the default 0.4 m/s',
+              bool(ts) and all(abs(m.linear.x - 0.4) < 1e-6 and abs(m.linear.y) < 1e-9 for m in ts),
+              f"result {res}; sent vx {sorted({round(m.linear.x, 2) for m in ts})}")
+        res, ts = await sent(direction="backward", speed=0.3)
+        check('move("backward", speed=0.3) sends vx = -0.3', bool(ts) and all(abs(m.linear.x + 0.3) < 1e-6 for m in ts),
+              f"sent vx {sorted({round(m.linear.x, 2) for m in ts})}")
+        res, ts = await sent(direction="left", speed=0.3)
+        check('move("left", speed=0.3) sends vy = +0.3 (the robot\'s left is +y)',
+              bool(ts) and all(abs(m.linear.y - 0.3) < 1e-6 and abs(m.linear.x) < 1e-9 for m in ts),
+              f"sent vy {sorted({round(m.linear.y, 2) for m in ts})}")
+        res, ts = await sent(direction="backward", run=True)
+        check('move("backward", run=True) runs at RUN_DEFAULT_SPEED (vx = -1.2)',
+              bool(ts) and all(abs(m.linear.x + 1.2) < 1e-6 for m in ts), f"sent vx {sorted({round(m.linear.x, 2) for m in ts})}")
+        res, ts = await sent(direction="forward", run=True, speed=0.6)
+        check('move("forward", run=True, speed=0.6) still runs: at least 1.0 m/s',
+              bool(ts) and min(m.linear.x for m in ts) >= 1.0 - 1e-9, f"sent vx {sorted({round(m.linear.x, 2) for m in ts})}")
+        res, ts = await sent(direction="right", run=True)
+        check('move("right", run=True) sidesteps at walking speed (vy = -0.4): sideways never runs',
+              bool(ts) and all(abs(m.linear.y + 0.4) < 1e-6 for m in ts), f"result {res}; sent vy {sorted({round(m.linear.y, 2) for m in ts})}")
+        res = await rig.call("move", direction="forward", speed=1.5, duration=10.0)
+        check("a move the robot refuses comes back as a failure with the reason",
+              res.ok is False and "m" in res.message, f"got {res}")
     finally:
         rig.close()
 

@@ -29,7 +29,7 @@ test). Work on one TODO at a time, and run its test group:
 | Student work (`TODO n: YOUR CODE HERE`) | Provided (don't rewrite) |
 | --- | --- |
 | `robot/prompt.md`: TODO 1, 6, 11 | The web app (`App.tsx`, `components/`, `services/`): students don't need to touch TypeScript |
-| `robot/tools.py`: TODO 4 (`move`, `turn`), 6 (`follow`), 8 (`play_trick`), 10 (`trick_action`) | The provided tools at the top of `tools.py`, and `robot/tool_registry.py` |
+| `robot/tools.py`: TODO 4 (`turn`, then `move`), 6 (`follow`), 8 (`play_trick`), 10 (`trick_action`) | The provided tools at the top of `tools.py`, and `robot/tool_registry.py` |
 | `robot/behaviors.py`: TODO 2 (`check_move`), 3 (`walk`), 5 (`leave_follow_mode`), 7 (`play_trick`), 9 (`trick_action`) | `robot/robot_api.py`: the queue, controller switching, clips, falls, the e-stop |
 | `tricks/sit_stay_shake/trick.yaml` (after training): description and `actions` (TODO 10) | `robot/server.py`, `robot/tricks.py`, `robot/launch/`, the shell scripts, `kiosk.py`, `get_trick.py` |
 | In pupper-mjlab: the Sit_Stay_Shake notebook (or `tricks/sit_stay_shake.py`): `cut`, `hold`, `mirror`, the clips and `ORDER` | The rest of pupper-mjlab |
