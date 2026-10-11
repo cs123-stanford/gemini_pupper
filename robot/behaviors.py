@@ -174,6 +174,12 @@ async def play_trick(robot: Robot, name: str) -> Result:
     Every trick in the lab is a policy trick: it plays its own controller (the
     job is play_policy_trick below).
 
+    Two kinds: a normal trick (trick.clips == []) is one motion played start to
+    finish, like sit. A clip trick (trick.clips lists its clips), like
+    sit_stay_shake, is several short motions: it plays its first clip, then
+    loops one (the "stay") until Gemini asks for another (trick_action) or any
+    other motion plays its exit clip (trick.exit_clip).
+
     TODO 7, part 1 (Part 4) ----------------------------------------------------
     Now:                 an unknown name fails with f"unknown trick '{name}';
                          available: {list(robot.tricks)}"; leave follow mode.
@@ -230,6 +236,16 @@ async def play_policy_trick(robot: Robot, trick: Trick) -> Result:
     # ========== TODO 7: YOUR CODE HERE ==========
     # Write steps 1-4 of the card above, in order. Each step that can fail returns a
     # Result(False, ...) that says why; every success says which pose the robot is in now.
+    # Examples (the handout has them as a table):
+    #   sit (ends standing), robot walking:  step 3, wait 11.0 s; step 4: back to walking
+    #       -> "played sit; back on the walking policy"
+    #   swim (ends lying), robot walking:    step 3, wait 11.5 s; step 4: nothing, it stays
+    #       -> "played swim; the trick controller holds the final pose"
+    #   swim again, still lying from swim:   step 2 first (relax), then as above
+    #   sit_stay_shake (clip trick):         step 3, wait 5.8 s; step 4: robot.holding_now = trick
+    #       -> "played sit_stay_shake; it now stays sitting. Trick actions: shake_left,
+    #           shake_right, stand_up. Any other motion first plays stand_up."
+    #   sit_stay_shake, already sitting in it: step 1 -> "already doing sit_stay_shake"
     # Hints: is a clip trick?        trick.clips (a non-empty list)
     #        is its controller on?   await robot.is_active(trick.controller)
     #        relax / take the legs:  await robot.switch_to(None) / await robot.switch_to(trick.controller)
