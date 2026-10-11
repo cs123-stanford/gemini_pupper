@@ -80,9 +80,14 @@ async def lie_down_tool(robot: Robot) -> Result:
     return await lie_down(robot)
 
 
-@tool("stop", "Emergency stop: cancel everything queued and stand still.")
+@tool(
+    "stop",
+    "Stop right away: cancel everything queued and stand still. A trick that is"
+    " still playing can only be stopped by relaxing the motors: then the robot lies"
+    " down, and stand_up gets it going again.",
+)
 async def stop_tool(robot: Robot) -> Result:
-    return await robot.immediate_stop()
+    return await robot.immediate_stop(relax_playing_trick=True)
 
 
 @tool("robot_status", "Check what the robot is doing right now: walking, in a trick, following, motors off, or fallen over.")

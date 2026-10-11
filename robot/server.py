@@ -216,7 +216,7 @@ async def queue_reset():
 @app.post("/queue/stop")
 @app.post("/stop/immediate")
 async def stop_immediate():
-    return (await T().immediate_stop()).as_dict()
+    return (await T().immediate_stop(relax_playing_trick=True)).as_dict()
 
 
 @app.get("/queue/status")

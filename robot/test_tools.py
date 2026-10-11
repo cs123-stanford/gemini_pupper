@@ -997,6 +997,60 @@ async def provided() -> None:
     finally:
         desk.rig.close()
 
+    # The stop tool, in the middle of things.
+    rig = Rig()
+    try:
+        bow, hold = rig.ts.tricks["bow"], rig.ts.tricks["hold_pose"]
+        await rig.ts.queue("trick bow", lambda: behaviors.play_policy_trick(rig.ts, bow), bow.total_time)
+        t0 = rig.clock.now
+        while rig.clock.now < t0 + 2.0:  # two seconds into the bow
+            await _real_sleep(0)
+        check("(setup) the bow is playing", bow.controller in rig.robot.active())
+        res = await tools.call(rig.ts, "stop", {})
+        await rig.settle()
+        check("stop in the middle of a trick relaxes the motors (a trick policy plays on by itself)",
+              not (rig.robot.active() & rig.ts.leg_controllers), f"active: {sorted(rig.robot.active())}")
+        check("... and the reply says so", res.ok and "relaxed" in res.message, f"got {res}")
+
+        async def walking_job():
+            await rig.ts.switch_to(WALKING_CONTROLLER)
+            await rig.ts.sleep(5.0)
+            return robot_api.Result(True, "walked")
+
+        await rig.ts.queue("walk", walking_job, 5.0)
+        t0 = rig.clock.now
+        while rig.clock.now < t0 + 6.0:  # standing up (4.2 s), then walking
+            await _real_sleep(0)
+        res = await tools.call(rig.ts, "stop", {})
+        await rig.settle()
+        check("stop during a walk just stands still: the walking policy keeps the legs",
+              WALKING_CONTROLLER in rig.robot.active() and "relaxed" not in res.message, f"got {res}")
+
+        await rig.ts.queue("trick hold_pose", lambda: behaviors.play_policy_trick(rig.ts, hold), hold.total_time,
+                           then_holding=hold)
+        await rig.settle()
+        res = await tools.call(rig.ts, "stop", {})
+        await rig.settle()
+        check("stop while a trick only holds its pose leaves it holding (nothing is moving)",
+              hold.controller in rig.robot.active() and "relaxed" not in res.message, f"got {res}")
+    finally:
+        rig.close()
+
+    # replaced_by: a trick steps aside while its replacement is installed.
+    import tricks as tricks_mod
+    with tempfile.TemporaryDirectory() as tmp:
+        def add(name, extra=""):
+            (Path(tmp) / name).mkdir()
+            (Path(tmp) / name / "policy.json").write_text(json.dumps({"trick": {"duration_s": 1.0}}))
+            (Path(tmp) / name / "trick.yaml").write_text(f"description: {name}\ntype: policy\npolicy: policy.json\n{extra}")
+        add("old_sit", "replaced_by: new_sit\n")
+        check("a trick with replaced_by is there while its replacement isn't",
+              "old_sit" in tricks_mod.load_tricks(Path(tmp)))
+        add("new_sit")
+        got = tricks_mod.load_tricks(Path(tmp))
+        check("... and steps aside once the replacement is installed", "old_sit" not in got and "new_sit" in got,
+              f"tricks: {sorted(got)}")
+
     def no_clip_tricks():
         return {k: v for k, v in fixture_tricks().items() if not v.clips}
 

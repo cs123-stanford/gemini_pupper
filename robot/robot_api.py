@@ -541,15 +541,38 @@ class Robot:
         log.warning("e-stop: relaxed %s", active or "nothing (no leg controller was active)")
         return Result(True, "e-stop: motors relaxed")
 
-    async def immediate_stop(self) -> Result:
-        """Clear the queue, cancel the running job, stop following and stand still."""
+    async def immediate_stop(self, relax_playing_trick: bool = False) -> Result:
+        """Clear the queue, cancel the running job, stop following and stand still.
+
+        Cancelling a walk is enough to stop it: the walking policy only moves while
+        it is sent speeds. A trick policy plays its motion by itself, so with
+        relax_playing_trick (the stop tool) a trick that was still playing is
+        stopped the only way it can be: by relaxing the motors, like the gamepad
+        e-stop. A trick that finished and only holds its pose is left as it is.
+        """
+        running = self.current is not None and not self.current.done()
         cleared = await self.clear_queue()
-        if self.current and not self.current.done():
+        if running:
             self.current.cancel()
         self.holding_after_queue = self.holding_now  # nothing else is coming
         await self.stop_following()
         self.send_speed(0, 0, 0)
-        return Result(True, f"stopped; {cleared.message}")
+        if not (relax_playing_trick and running):
+            return Result(True, f"stopped; {cleared.message}")
+        await asyncio.sleep(0.1)  # a job cancelled while switching to a trick may still finish the switch
+        states = await self.controller_states()
+        playing = [t for t in self.tricks.values() if t.kind == "policy" and states.get(t.controller) == "active"]
+        if not playing:
+            return Result(True, f"stopped; {cleared.message}")
+        req = SwitchController.Request()
+        req.deactivate_controllers = [c for c in sorted(self.leg_controllers) if states.get(c) == "active"]
+        req.strictness = SwitchController.Request.BEST_EFFORT
+        await self._call(self.switch_client, req)
+        self.holding_now = self.holding_after_queue = None
+        self.walk_since = None
+        log.warning("stop: %s was still playing; relaxed the motors", playing[0].name)
+        return Result(True, f"stopped; {cleared.message}. {playing[0].name} was still playing, so the motors"
+                            " relaxed and the robot is lying down; call stand_up to go on")
 
     async def mode(self) -> Result:
         """What the robot is doing right now, in words (the robot_status tool)."""

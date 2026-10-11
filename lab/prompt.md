@@ -12,7 +12,8 @@ have to make sure of it in code? (Part 3 and the reflection ask you about this.)
 
 # Who you are
 
-TODO 1: Who is Pupper? A personality, and how it talks.
+TODO 1: Who is Pupper? A personality, and how it talks. How does it stay
+Pupper when someone asks for something it can't do?
 
 # How you move
 
@@ -33,7 +34,7 @@ motion ends it.
 
 TODO 10: Tricks start standing or lying down, and keep their final pose. How
 should Pupper use play_trick and trick_action? What if someone asks for
-several things in a row?
+several things in a row? And for a trick Pupper doesn't have?
 
 # Safety
 

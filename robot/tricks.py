@@ -17,6 +17,9 @@ Every trick is played by a policy, so playing one is a controller switch:
 trick.yaml fields: description (what Gemini reads), type, policy or reference,
 start_pose / end_pose (standing, sitting or lying), and for policies an optional
 max_body_angle_deg (the tilt e-stop while the trick plays; default 60).
+Optional replaced_by: another trick's name. While that trick is installed, this
+one is left out (no controller, not offered to Gemini): sit and
+stand_sit_shake_sit_stand step aside once your sit_stay_shake is in.
 
 Clip tricks. A policy trained on a clip library (pupper-mjlab's
 motion_design.concat_clips) carries a clip table in its JSON. The controller
@@ -114,6 +117,7 @@ class Trick:
 
 def load_tricks(trick_dir: Path = TRICK_DIR) -> dict[str, Trick]:
     tricks = {}
+    replaced_by: dict[str, str] = {}  # trick -> the trick that replaces it
     for spec_path in sorted(trick_dir.glob("*/trick.yaml")):
         spec = yaml.safe_load(spec_path.read_text())
         name = spec_path.parent.name
@@ -135,6 +139,8 @@ def load_tricks(trick_dir: Path = TRICK_DIR) -> dict[str, Trick]:
         for clip in [*actions, *([exit_clip] if exit_clip else [])]:
             if clip not in clip_names:
                 raise ValueError(f"{spec_path}: clip {clip!r} is not in the policy's clips {sorted(clip_names)}")
+        if spec.get("replaced_by"):
+            replaced_by[name] = str(spec["replaced_by"])
         tricks[name] = Trick(
             name=name,
             description=str(spec.get("description", name)).strip(),
@@ -149,7 +155,7 @@ def load_tricks(trick_dir: Path = TRICK_DIR) -> dict[str, Trick]:
             actions=actions,
             exit_clip=exit_clip,
         )
-    return tricks
+    return {name: t for name, t in tricks.items() if replaced_by.get(name) not in tricks}
 
 
 def controller_params(trick: Trick, base: dict) -> dict:
