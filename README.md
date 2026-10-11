@@ -33,6 +33,7 @@ This is the CS 123 version: tools in Python, trick policies, and safety checks.
 | `robot/tools.py` | Every tool Gemini can call: what Gemini reads, and a short body | TODO 4, 6, 8, 10 |
 | `robot/behaviors.py` | What the robot does: check, queue a job, report | TODO 2, 3, 5, 7, 9 |
 | `robot/test_tools.py` | Tests with a fake robot: `python3 robot/test_tools.py todo3` | run them |
+| `robot/chat.py` | Talk to Gemini in text and watch every tool call: `--toy` (Peng's demo), your tools on a fake robot (default), or `--robot` | run it |
 | `tricks/sit_stay_shake/` | The clip trick you train in Part 5 (`get_trick.py` makes it) | TODO 10 (its `trick.yaml`) |
 | `robot/robot_api.py` | The Robot API: the queue, the legs, falls, follow mode, the e-stop | no: read the table at the top |
 | `robot/tool_registry.py` | Turns `@tool` functions into what Gemini reads | no |
@@ -75,6 +76,20 @@ open http://localhost:8000, open **Settings**, paste your key and press
 
 The e-stop is the gamepad's right stick (press it): it relaxes the motors,
 whatever Gemini is doing.
+
+## Talk to Gemini in text
+
+`robot/chat.py` (based on Peng Xu's Gemini Live example) runs the same loop as
+the web app, in your terminal: you type, Gemini calls tools, and you see every
+call and every reply. It needs `python3 -m pip install --user google-genai`
+(`setup.sh` installs it on the Pupper) and your key in `GEMINI_API_KEY` or
+`~/.config/gemini-pupper/api_key`.
+
+```bash
+python3 robot/chat.py --toy      # one toy tool that only prints: see how the loop works
+python3 robot/chat.py            # your prompt and tools, on a fake robot: nothing moves
+python3 robot/chat.py --robot    # your tools on the real Pupper (through the robot server): it moves!
+```
 
 ## After you change something
 

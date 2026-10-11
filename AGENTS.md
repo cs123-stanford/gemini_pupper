@@ -40,8 +40,8 @@ patch infrastructure to make a symptom go away.
 ## Safety rules (these override everything else)
 
 1. **Never move the robot without the student's explicit OK, right then.**
-   That includes `robot/start.sh`, `curl` to any POST endpoint of the robot
-   server, `ros2 topic pub`, `ros2 control switch_controllers`, and anything
+   That includes `robot/start.sh`, `python3 robot/chat.py --robot`, `curl` to
+   any POST endpoint of the robot server, `ros2 topic pub`, `ros2 control switch_controllers`, and anything
    that activates a controller. Say what will happen and wait. The student must
    be at the robot with a hand near the e-stop.
 2. **Simulate first.** A new or changed motion goes through the motion report
@@ -68,6 +68,10 @@ patch infrastructure to make a symptom go away.
   `robot`): tests with a fake robot. Run them after every change to
   `prompt.md`, `tools.py` or `behaviors.py`. They check what the tools do, not
   how they are written.
+- `python3 robot/chat.py`: talk to Gemini in text with the student's own prompt
+  and tools, on the fake robot (nothing moves). It shows each tool call, the
+  reply Gemini hears, and what the fake robot did. `--toy` is Peng's one-tool
+  demo. Never `--robot` without the student's OK (see the safety rules).
 - In pupper-mjlab: `uv run python -m mjlab.tasks.tracking.config.pupper.tricks.sit_stay_shake`
   checks `cut`, `hold` and `mirror` and builds the library;
   `uv run python -m mjlab.tasks.tracking.config.pupper.play_motion <motion>.npz`

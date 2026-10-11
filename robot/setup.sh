@@ -40,11 +40,11 @@ npm run build --silent 2>&1 | grep -vE "chunks are larger|dynamic import|manualC
 echo "      built dist/"
 
 echo "[3/4] Python packages for the robot server"
-if python3 -c "import fastapi, uvicorn, psutil, pydantic, websockets" 2>/dev/null; then
+if python3 -c "import fastapi, uvicorn, psutil, pydantic, websockets, google.genai" 2>/dev/null; then
   echo "      already installed"
 else
-  python3 -m pip install --user --break-system-packages -q fastapi uvicorn psutil pydantic websockets
-  python3 -c "import fastapi, uvicorn, psutil, pydantic, websockets"
+  python3 -m pip install --user --break-system-packages -q fastapi uvicorn psutil pydantic websockets google-genai
+  python3 -c "import fastapi, uvicorn, psutil, pydantic, websockets, google.genai"
   echo "      installed"
 fi
 

@@ -985,6 +985,17 @@ async def provided() -> None:
     finally:
         rig.close()
 
+    # robot/chat.py's fake-robot mode tells Gemini exactly what the web app would.
+    import chat
+    desk = chat.DeskBackend()
+    prompt, decls = desk.setup()
+    try:
+        check("chat.py gives Gemini the same prompt as the robot server", prompt == system_prompt())
+        check("... and the same tools", decls == tools.declarations(desk.rig.ts),
+              f"chat.py: {[d['name'] for d in decls]}")
+    finally:
+        desk.rig.close()
+
     def no_clip_tricks():
         return {k: v for k, v in fixture_tricks().items() if not v.clips}
 
