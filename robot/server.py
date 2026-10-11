@@ -3,8 +3,8 @@
 Run on the Pupper after the robot stack is up (see start.sh):
     python3 robot/server.py
 
-The web app gets Gemini's instructions and tools from GET /tools (robot/prompt.md
-and robot/tools.py) and sends every tool call to POST /tools/<name>. Every call
+The web app gets Gemini's instructions and tools from GET /tools (lab/prompt.md
+and the @tool functions in lab/) and sends every tool call to POST /tools/<name>. Every call
 returns {"success": bool, "message": str}, which goes straight back to Gemini,
 so Gemini hears about refused speeds, unknown tricks and failed controller
 switches. The other endpoints are for the debug panel and for testing by hand.
@@ -28,16 +28,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-import tools as gemini_tools
-import behaviors
+import tool_registry as gemini_tools
 from robot_api import LIMITS, Robot
+
+behaviors = gemini_tools.load_lab()  # lab/: every tool, and the behaviors they call
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("server")
 
 REPO = Path(__file__).resolve().parent.parent
-WEB_DIST = REPO / "dist"
-PROMPT_FILE = Path(__file__).resolve().parent / "prompt.md"
+WEB_DIST = REPO / "web" / "dist"
+PROMPT_FILE = REPO / "lab" / "prompt.md"
 BATTERY_SCRIPT = Path("/home/pi/pupperv3-monorepo/robot/utils/check_batt_voltage.py")
 
 tools: Robot | None = None
@@ -129,7 +130,7 @@ class Volume(BaseModel):
 
 # ------------------------------------------------------------------ Gemini's tools
 def system_prompt() -> str:
-    """robot/prompt.md without its <!-- comments -->."""
+    """lab/prompt.md without its <!-- comments -->."""
     text = PROMPT_FILE.read_text() if PROMPT_FILE.exists() else ""
     return re.sub(r"<!--.*?-->", "", text, flags=re.S).strip()
 
@@ -305,7 +306,7 @@ def health():
     return {"status": "running", "tools": tools is not None}
 
 
-# The built web app (npm run build -> dist/) is served at /, so the robot's own
+# The built web app (npm run build in web/ -> web/dist/) is served at /, so the robot's own
 # browser, or a laptop through an SSH tunnel, opens everything from one address.
 if WEB_DIST.is_dir():
     app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")

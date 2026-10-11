@@ -15,7 +15,7 @@ free_port() {  # stop whatever is serving port 8000 (an older robot server)
 }
 ROS="source /opt/ros/jazzy/setup.bash; source $HOME/pupperv3-monorepo/ros2_ws/install/local_setup.bash; export ROS_LOCALHOST_ONLY=1"
 
-[ -f "$REPO/dist/index.html" ] || { echo "Missing $REPO/dist: run robot/setup.sh first (it builds the web app)"; exit 1; }
+[ -f "$REPO/web/dist/index.html" ] || { echo "Missing $REPO/web/dist: run robot/setup.sh first (it builds the web app)"; exit 1; }
 if [ $KIOSK = 1 ] && [ ! -s "$KEY_FILE" ]; then
   echo "Missing $KEY_FILE. Run robot/setup.sh, or create it with:  mkdir -p $(dirname $KEY_FILE) && (umask 077; cat > $KEY_FILE)"; exit 1
 fi

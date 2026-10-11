@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Desk tests for Gemini Pupper: no robot, no ROS, no Gemini needed.
 
-Run them after every change to prompt.md, tools.py or behaviors.py:
+Run them after every change to a file in lab/ (lab/test.py runs this file):
 
-    python3 robot/test_tools.py            # everything
-    python3 robot/test_tools.py todo3      # one TODO (todo1 ... todo11)
-    python3 robot/test_tools.py part2      # one part of the lab (part1 ... part6)
-    python3 robot/test_tools.py robot      # the provided robot (should always pass)
-    python3 robot/test_tools.py optional_jump   # the optional jump
+    python3 lab/test.py            # everything
+    python3 lab/test.py todo3      # one TODO (todo1 ... todo10)
+    python3 lab/test.py part2      # one part of the lab (part1 ... part6)
+    python3 lab/test.py robot      # the provided robot (should always pass)
+    python3 lab/test.py optional_jump   # the optional jump
 
 A fake robot stands in for ROS. It keeps track of which controllers are on,
 records every message the robot sends, and plays trick clips instantly. Time
@@ -214,10 +214,10 @@ def _install_fake_ros() -> None:
 
 
 _install_fake_ros()
-import behaviors  # noqa: E402
 import robot_api  # noqa: E402
-import tools  # noqa: E402
-from behaviors import check_move  # noqa: E402
+import tool_registry as tools  # noqa: E402  (call and declarations: what the web app uses)
+behaviors = tools.load_lab()  # noqa: E402  (everything in lab/: lab.walk, lab.check_move, ...)
+check_move = behaviors.check_move
 from robot_api import LIMITS, LLM_CMD_RATE, WALK_READY_S, WALKING_CONTROLLER, Robot  # noqa: E402
 from tricks import Trick  # noqa: E402
 
@@ -389,7 +389,7 @@ def described(rig: Rig, names: list[str], todo: str) -> bool:
     decls = {d["name"]: d for d in tools.declarations(rig.ts)}
     missing = [n for n in names if n not in decls]
     if missing:
-        check(f"tools.py declares {', '.join(names)}", False, f"missing {missing}; declared: {sorted(decls)}")
+        check(f"lab/ declares {', '.join(names)}", False, f"missing {missing}; declared: {sorted(decls)}")
         return False
     if any("TODO" in json.dumps(decls[n]) for n in names):
         skip(f"{todo}: the descriptions of {', '.join(names)} still say TODO")
@@ -405,7 +405,7 @@ def described(rig: Rig, names: list[str], todo: str) -> bool:
 
 
 def system_prompt() -> str:
-    text = (HERE / "prompt.md").read_text()
+    text = (HERE.parent / "lab" / "prompt.md").read_text()
     return re.sub(r"<!--.*?-->", "", text, flags=re.S).strip()
 
 
@@ -467,10 +467,11 @@ async def todo2() -> None:
         if check(f"refuses: {name}", isinstance(got, str) and got != "", f"check_move{args} returned {got!r}"):
             if limit is not None:
                 check(f"  ... and the reason names the limit ({limit})", limit in got, f"reason was {got!r}")
+    await provided_walk()
 
 
-async def todo3() -> None:
-    print("TODO 3: walk sends the speed for the whole move, then stands still")
+async def provided_walk() -> None:
+    print("  (provided) walk, with your check_move: sends the speed for the whole move, then stands still")
     rig = Rig()
     try:
         res = await behaviors.walk(rig.ts, 5.0, 0.0, 0.0, 1.0)
@@ -537,15 +538,15 @@ async def todo3() -> None:
         rig.close()
 
 
-async def todo4() -> None:
-    print("TODO 4: the turn tool, then the move tool")
+async def todo3() -> None:
+    print("TODO 3: the turn tool, then the move tool")
     rig = Rig()
     try:
         # turn first: the warm-up.
-        described(rig, ["turn"], "TODO 4 (turn)")
+        described(rig, ["turn"], "TODO 3 (turn)")
         res = await rig.call("turn", direction="left", angle=90)
         if unwritten(res):
-            skip(f"{unwritten(res)} is not written yet (the turn tool needs TODO 3 and TODO 4)")
+            skip(f"{unwritten(res)} is not written yet (the turn tool needs TODO 2 and TODO 3)")
             return
         twists = rig.robot.twists()
         yaw = sum(m.angular.z * (b[0] - a[0]) for (a, b), m in zip(zip(twists, twists[1:]), (t[1] for t in twists)))
@@ -562,7 +563,7 @@ async def todo4() -> None:
               f"turn rates sent: {sorted({round(m.angular.z, 2) for _, m in twists})}")
 
         # move: the real challenge.
-        if described(rig, ["move"], "TODO 4 (move)"):
+        if described(rig, ["move"], "TODO 3 (move)"):
             text = json.dumps({d["name"]: d for d in tools.declarations(rig.ts)}["move"])
             check("move's words give the real speed limit (LIMITS.vx_max)", str(LIMITS.vx_max) in text)
             check("... and say that it ends follow mode", "follow" in text.lower())
@@ -605,8 +606,8 @@ async def todo4() -> None:
 
 
 # ----------------------------------------------------------------------------- Part 3
-async def todo5() -> None:
-    print("TODO 5: any motion ends follow mode right away, and Gemini hears about it")
+async def todo4() -> None:
+    print("TODO 4: any motion ends follow mode right away, and Gemini hears about it")
     rig = Rig()
     try:
         res = await rig.ts.set_following(True)
@@ -615,7 +616,7 @@ async def todo5() -> None:
         res = await behaviors.stand_up(rig.ts)
         stopped_now = not rig.ts.following and not rig.robot.follower_on
         if not stopped_now and rig.robot.follow_calls == ["on"] and "follow" not in res.message.lower():
-            skip("TODO 5 (leave_follow_mode) is not written yet")
+            skip("TODO 4 (leave_follow_mode) is not written yet")
             return
         check("standing up ends follow mode right away (before the queue reaches it)", stopped_now)
         check("the tool result tells Gemini it stopped following", "follow" in res.message.lower(),
@@ -648,16 +649,16 @@ async def todo5() -> None:
         rig.close()
 
 
-async def todo6() -> None:
-    print("TODO 6: the follow tool")
+async def todo5() -> None:
+    print("TODO 5: the follow tool")
     rig = Rig()
     try:
-        if described(rig, ["follow"], "TODO 6"):
+        if described(rig, ["follow"], "TODO 5"):
             text = json.dumps({d["name"]: d for d in tools.declarations(rig.ts)}["follow"]).lower()
             check("follow's description says what ends follow mode", "end" in text or "stop" in text)
         follow_text = prompt_sections("Follow mode")
         if "TODO" in follow_text or not follow_text:
-            skip("TODO 6: prompt.md still says TODO under Follow mode")
+            skip("TODO 5: prompt.md still says TODO under Follow mode")
         else:
             check("the prompt's Follow mode section says what ends following", "end" in follow_text.lower()
                   or "stop" in follow_text.lower(), follow_text)
@@ -673,14 +674,14 @@ async def todo6() -> None:
 
 
 # ----------------------------------------------------------------------------- Part 4
-async def todo7() -> None:
-    print("TODO 7: play_trick (the fake tricks: bow, roll_over, hold_pose)")
+async def todo6() -> None:
+    print("TODO 6: play_trick (the fake tricks: bow, roll_over, hold_pose)")
     rig = Rig()
     try:
         res = await behaviors.play_trick(rig.ts, "backflip")
         await rig.settle()
         if unwritten(res):
-            skip("TODO 7 (play_trick) is not written yet")
+            skip("TODO 6 (play_trick) is not written yet")
             return
         check("an unknown trick fails", not res.ok, f"got {res}")
         check("... and the message lists the tricks that exist", "bow" in res.message, f"got {res.message!r}")
@@ -691,7 +692,7 @@ async def todo7() -> None:
         check("a trick is accepted right away (queued)", res.ok and "queued" in res.message, f"got {res}")
         await rig.settle()
         if any(unwritten(_Msg(message=o)) for o in rig.outcomes(start)):
-            skip("TODO 7 (play_policy_trick, the job) is not written yet")
+            skip("TODO 6 (play_policy_trick, the job) is not written yet")
             return
         on, off = rig.robot.activations(bow.controller), rig.robot.deactivations(bow.controller)
         check("the trick's controller took the legs", bool(on), f"switches: {rig.robot.switches}")
@@ -744,17 +745,17 @@ async def todo7() -> None:
         await rig.settle()
         res = await behaviors.play_trick(rig.ts, "bow")
         await rig.settle()
-        check("a trick ends follow mode (TODO 5's rule)", not rig.ts.following and "follow" in res.message.lower(),
+        check("a trick ends follow mode (TODO 4's rule)", not rig.ts.following and "follow" in res.message.lower(),
               f"got {res}")
     finally:
         rig.close()
 
 
-async def todo8() -> None:
-    print("TODO 8: the play_trick tool")
+async def todo7() -> None:
+    print("TODO 7: the play_trick tool")
     rig = Rig()
     try:
-        if not described(rig, ["play_trick"], "TODO 8"):
+        if not described(rig, ["play_trick"], "TODO 7"):
             return
         decl = {d["name"]: d for d in tools.declarations(rig.ts)}["play_trick"]
         check("its description lists every trick with its own description ({tricks})",
@@ -775,7 +776,7 @@ async def optional_jump() -> None:
         res = await behaviors.play_trick(rig.ts, "hop")
         await rig.settle()
         if unwritten(res):
-            skip("TODO 7 (play_trick) is not written yet")
+            skip("TODO 6 (play_trick) is not written yet")
             return
         refs = [m for _, topic, m in rig.robot.published if topic.endswith("/reference_trick")]
         check("a reference trick plays through the walking policy (robot.play_reference_trick)",
@@ -786,20 +787,20 @@ async def optional_jump() -> None:
 
 
 # ----------------------------------------------------------------------------- Part 5
-async def todo9() -> None:
-    print("TODO 9: trick actions (the fake clip trick 'hold_pose': wave_left, wave_right, leave)")
+async def todo8() -> None:
+    print("TODO 8: trick actions (the fake clip trick 'hold_pose': wave_left, wave_right, leave)")
     rig = Rig()
     try:
         ctrl = rig.ts.tricks["hold_pose"].controller
         res = await behaviors.trick_action(rig.ts, "wave_left")
         await rig.settle()
         if unwritten(res):
-            skip("TODO 9 (trick_action) is not written yet")
+            skip("TODO 8 (trick_action) is not written yet")
             return
         probe = await behaviors.play_trick(rig.ts, "bow")
         await rig.settle()
         if unwritten(probe) or any(unwritten(_Msg(message=o)) for o in rig.outcomes()):
-            skip("these checks need TODO 7 (play_trick) first")
+            skip("these checks need TODO 6 (play_trick) first")
             return
 
         start = len(rig.records)
@@ -869,11 +870,11 @@ async def todo9() -> None:
         rig.close()
 
 
-async def todo10() -> None:
-    print("TODO 10: the trick_action tool")
+async def todo9() -> None:
+    print("TODO 9: the trick_action tool")
     rig = Rig()
     try:
-        if described(rig, ["trick_action"], "TODO 10"):
+        if described(rig, ["trick_action"], "TODO 9"):
             decl = {d["name"]: d for d in tools.declarations(rig.ts)}["trick_action"]
             check("its description lists the actions ({actions})", "Waves the left paw." in decl["description"],
                   decl["description"])
@@ -899,7 +900,7 @@ async def todo10() -> None:
         spec = yaml.safe_load(shake.read_text()) or {}
         text = json.dumps(spec)
         if "TODO" in text:
-            skip("TODO 10: tricks/sit_stay_shake/trick.yaml still says TODO")
+            skip("TODO 9: tricks/sit_stay_shake/trick.yaml still says TODO")
         else:
             check("sit_stay_shake/trick.yaml describes the trick", len(str(spec.get("description", ""))) >= 20)
             check("... and each of its actions", all(len(str(v)) >= 10 for v in (spec.get("actions") or {}).values())
@@ -909,11 +910,11 @@ async def todo10() -> None:
 
 
 # ----------------------------------------------------------------------------- Part 6
-async def todo11() -> None:
-    print("TODO 11: prompt.md, second pass")
+async def todo10() -> None:
+    print("TODO 10: prompt.md, second pass")
     text = prompt_sections("Tricks", "Safety").lower()
     if "todo" in text or not text:
-        skip("TODO 11: prompt.md still says TODO under Tricks or Safety")
+        skip("TODO 10: prompt.md still says TODO under Tricks or Safety")
         return
     check("the prompt says what to do when someone says stop", "stop" in text)
     check("... and when Pupper falls over", "fall" in text or "fell" in text)
@@ -985,9 +986,9 @@ async def provided() -> None:
     finally:
         rig.close()
 
-    # robot/chat.py's fake-robot mode tells Gemini exactly what the web app would.
-    import chat
-    desk = chat.DeskBackend()
+    # lab/chat.py's fake-robot mode tells Gemini exactly what the web app would.
+    import gemini_chat
+    desk = gemini_chat.DeskBackend()
     prompt, decls = desk.setup()
     try:
         check("chat.py gives Gemini the same prompt as the robot server", prompt == system_prompt())
@@ -1012,18 +1013,18 @@ async def provided() -> None:
 
 # ----------------------------------------------------------------------------- main
 GROUPS = {
-    "todo1": todo1, "todo2": todo2, "todo3": todo3, "todo4": todo4, "todo5": todo5, "todo6": todo6,
-    "todo7": todo7, "todo8": todo8, "todo9": todo9, "todo10": todo10, "todo11": todo11, "robot": provided,
+    "todo1": todo1, "todo2": todo2, "todo3": todo3, "todo4": todo4, "todo5": todo5,
+    "todo6": todo6, "todo7": todo7, "todo8": todo8, "todo9": todo9, "todo10": todo10, "robot": provided,
     "optional_jump": optional_jump,
 }
 OPT_IN = {"optional_jump"}  # run only when asked for by name
 PARTS = {
     "part1": ["todo1"],
-    "part2": ["todo2", "todo3", "todo4"],
-    "part3": ["todo5", "todo6"],
-    "part4": ["todo7", "todo8"],
-    "part5": ["todo9", "todo10"],
-    "part6": ["todo11"],
+    "part2": ["todo2", "todo3"],
+    "part3": ["todo4", "todo5"],
+    "part4": ["todo6", "todo7"],
+    "part5": ["todo8", "todo9"],
+    "part6": ["todo10"],
 }
 
 

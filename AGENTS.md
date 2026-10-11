@@ -12,26 +12,27 @@ check. Don't answer the lab's DELIVERABLE questions for them.
 ## What this repo is
 
 Pupper is a real robot dog: 12 motors, a Raspberry Pi, a camera. Gemini Live
-(in the browser) talks with people and calls **tools**. The tools are Python:
-the web app gets Gemini's prompt (`robot/prompt.md`) and tool list
-(`robot/tools.py`) from the robot server (`robot/server.py`, port 8000), and
-sends every tool call back to it. A tool's body calls a behavior in
-`robot/behaviors.py`, which checks the request, queues a job and returns a
-Result. `robot/robot_api.py` (provided) runs the jobs one at a time and drives
+(in the browser, `web/`) talks with people and calls **tools**. The tools are
+Python, in `lab/`: the web app gets Gemini's prompt (`lab/prompt.md`) and tool
+list from the robot server (`robot/server.py`, port 8000), and sends every tool
+call back to it. Each `lab/` file has two halves: behaviors (what the robot
+does: check the request, queue a job, return a Result) and the `@tool`s Gemini
+calls. `robot/robot_api.py` (provided) runs the jobs one at a time and drives
 the ROS 2 controllers. Trick policies are trained in pupper-mjlab and fetched
 from W&B with `robot/get_trick.py`.
 
-The student TODOs are numbered 1-11 in the order of the lab handout, each with
+The student TODOs are numbered 1-10 in the order of the lab handout, each with
 a card in the code (now / later / what Gemini hears / must always be true /
 test). Work on one TODO at a time, and run its test group:
-`python3 robot/test_tools.py todo3`.
+`python3 lab/test.py todo3`.
 
-| Student work (`TODO n: YOUR CODE HERE`) | Provided (don't rewrite) |
+| Student work (`TODO n: YOUR CODE HERE`, all in `lab/`) | Provided (don't rewrite) |
 | --- | --- |
-| `robot/prompt.md`: TODO 1, 6, 11 | The web app (`App.tsx`, `components/`, `services/`): students don't need to touch TypeScript |
-| `robot/tools.py`: TODO 4 (`turn`, then `move`), 6 (`follow`), 8 (`play_trick`), 10 (`trick_action`) | The provided tools at the top of `tools.py`, and `robot/tool_registry.py` |
-| `robot/behaviors.py`: TODO 2 (`check_move`), 3 (`walk`), 5 (`leave_follow_mode`), 7 (`play_trick`), 9 (`trick_action`) | `robot/robot_api.py`: the queue, controller switching, clips, falls, the e-stop |
-| `tricks/sit_stay_shake/trick.yaml` (after training): description and `actions` (TODO 10) | `robot/server.py`, `robot/tricks.py`, `robot/launch/`, the shell scripts, `kiosk.py`, `get_trick.py` |
+| `prompt.md`: TODO 1, 5 (its Follow mode section), 10 | `lab/basics.py`, and the finished functions in the part files (`walk`, `play_policy_trick`): students read and explain them, they don't write them |
+| `part2_walk.py`: TODO 2 (`check_move`), 3 (the `turn` and `move` tools) | `robot/`: the Robot API (`robot_api.py`), the tool registry, the robot server, the tests, the chat, the launch files and scripts |
+| `part3_follow.py`: TODO 4 (`leave_follow_mode`), 5 (the `follow` tool) | `web/`: the web app (TypeScript); students don't need to touch it |
+| `part4_tricks.py`: TODO 6 (`play_trick`), 7 (its words) | `robot/tricks.py`, `robot/get_trick.py` |
+| `part5_sit_stay_shake.py`: TODO 8 (`trick_action`), 9 (its words, and `tricks/sit_stay_shake/trick.yaml`) | |
 | In pupper-mjlab: the Sit_Stay_Shake notebook (or `tricks/sit_stay_shake.py`): `cut`, `hold`, `mirror`, the clips and `ORDER` | The rest of pupper-mjlab |
 
 If a provided file looks wrong, tell the student and let them ask a TA; don't
@@ -40,7 +41,7 @@ patch infrastructure to make a symptom go away.
 ## Safety rules (these override everything else)
 
 1. **Never move the robot without the student's explicit OK, right then.**
-   That includes `robot/start.sh`, `python3 robot/chat.py --robot`, `curl` to
+   That includes `robot/start.sh`, `python3 lab/chat.py --robot`, `curl` to
    any POST endpoint of the robot server, `ros2 topic pub`, `ros2 control switch_controllers`, and anything
    that activates a controller. Say what will happen and wait. The student must
    be at the robot with a hand near the e-stop.
@@ -64,11 +65,10 @@ patch infrastructure to make a symptom go away.
 
 ## How to check work without the robot
 
-- `python3 robot/test_tools.py` (or `todo1` ... `todo11`, `part1` ... `part6`,
-  `robot`): tests with a fake robot. Run them after every change to
-  `prompt.md`, `tools.py` or `behaviors.py`. They check what the tools do, not
-  how they are written.
-- `python3 robot/chat.py`: talk to Gemini in text with the student's own prompt
+- `python3 lab/test.py` (or `todo1` ... `todo10`, `part1` ... `part6`,
+  `robot`): tests with a fake robot. Run them after every change in `lab/`.
+  They check what the tools do, not how they are written.
+- `python3 lab/chat.py`: talk to Gemini in text with the student's own prompt
   and tools, on the fake robot (nothing moves). It shows each tool call, the
   reply Gemini hears, and what the fake robot did. `--toy` is Peng's one-tool
   demo. Never `--robot` without the student's OK (see the safety rules).
@@ -88,7 +88,7 @@ patch infrastructure to make a symptom go away.
   never `time.sleep`.
 - Units: metres, seconds, degrees. Directions use the robot's convention:
   +y is left, and a positive turn is to the left.
-- After changing `tools.py` or `behaviors.py`, restart the server
+- After changing a `.py` file in `lab/`, restart the server
   (`robot/stop.sh`, then `robot/start.sh`). After changing `prompt.md`,
   reconnect in the app.
 - The robot is called Pupper. Gemini Pupper was created by Peng Xu (Google

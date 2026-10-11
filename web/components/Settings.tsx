@@ -76,7 +76,7 @@ const Settings: React.FC<SettingsProps> = ({ apiKey, setApiKey, config, setConfi
 
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Extra Instructions</label>
-            <p className="text-xs text-gray-500 mb-1">Pupper's personality and rules come from the robot (robot/prompt.md). Anything here is added after them.</p>
+            <p className="text-xs text-gray-500 mb-1">Pupper's personality and rules come from the robot (lab/prompt.md). Anything here is added after them.</p>
             <textarea
               value={config.extraInstructions}
               onChange={(e) => setConfig({...config, extraInstructions: e.target.value})}

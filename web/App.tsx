@@ -41,7 +41,7 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // The system prompt moved to the robot (robot/prompt.md); drop the old saved one.
+        // The system prompt moved to the robot (lab/prompt.md); drop the old saved one.
         delete parsed.systemInstruction;
         return { ...DEFAULT_CONFIG, ...parsed };
       } catch (e) {

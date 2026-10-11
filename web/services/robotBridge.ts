@@ -101,7 +101,7 @@ class RobotBridge {
     return this.request('/animation', 'POST', { animation_name: name });
   }
 
-  /** Gemini's system prompt and tool declarations (robot/prompt.md, robot/tools.py). */
+  /** Gemini's system prompt and tool declarations (lab/prompt.md, the tools in lab/). */
   async getTools() {
     return this.request('/tools', 'GET');
   }

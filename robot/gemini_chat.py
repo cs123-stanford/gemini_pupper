@@ -5,15 +5,15 @@ Gemini Live in about a hundred lines: no browser, no microphone. You type, Gemin
 answers and calls tools, and this script runs each call and sends the reply
 back, the same loop the web app runs when you talk to Pupper.
 
-    python3 robot/chat.py --toy      # one toy tool that only prints (a laptop is enough)
-    python3 robot/chat.py            # YOUR tools, on a fake robot (a laptop is enough)
-    python3 robot/chat.py --robot    # your tools on the real Pupper (it moves!)
+    python3 lab/chat.py --toy      # one toy tool that only prints (a laptop is enough)
+    python3 lab/chat.py            # YOUR tools, on a fake robot (a laptop is enough)
+    python3 lab/chat.py --robot    # your tools on the real Pupper (it moves!)
 
 --toy      Peng Xu's original demo: one made-up tool, move_robot, that prints
            what it would do. Change its description or its reply (TOY_TOOL and
            move_robot below) and watch what Gemini does differently.
-(default)  Your prompt.md, and your tools from tools.py, exactly as the web app
-           gets them, run on the fake robot from test_tools.py. Time is fake, so
+(default)  Your lab/prompt.md, and your tools from lab/, exactly as the web app
+           gets them, run on the fake robot from robot/test_tools.py. Time is fake, so
            a queued job finishes at once: you see the reply Gemini hears
            (accepted or refused), then what the job did (the outcome) and what
            the fake robot was told. Nothing moves; no Pupper needed.
@@ -86,13 +86,13 @@ class ToyBackend:
 
 
 # ============================================================ your tools, on the fake robot
-def prompt_text(path: Path = HERE / "prompt.md") -> str:
+def prompt_text(path: Path = HERE.parent / "lab" / "prompt.md") -> str:
     """prompt.md without its <!-- comments -->, as the robot server sends it."""
     return re.sub(r"<!--.*?-->", "", path.read_text(), flags=re.S).strip()
 
 
 class DeskBackend:
-    """Your tools.py and behaviors.py on the fake robot from test_tools.py."""
+    """Your lab/ tools and behaviors on the fake robot from test_tools.py."""
 
     name = "your tools on a fake robot (nothing moves)"
 

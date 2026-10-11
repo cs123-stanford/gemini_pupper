@@ -1,12 +1,16 @@
-"""The tool registry: turns the @tool functions in tools.py into what Gemini reads,
+"""The tool registry: turns the @tool functions in lab/ into what Gemini reads,
 and checks every call against it before running it (provided).
 
-You don't change this file. In tools.py:
+You don't change this file. In a lab/ file:
 
-    @tool("What Gemini reads about the tool.",
+    @tool("my_tool", "What Gemini reads about the tool.",
           speed=Param("number", "What Gemini reads about this parameter.", required=False))
-    async def my_tool(robot, speed=0.4) -> Result:
+    async def my_tool_tool(robot, speed=0.4) -> Result:
         ...
+
+The first word is the tool's name, the one Gemini calls; the Python function
+can be called anything (in lab/ it is the name plus _tool, so it doesn't clash
+with the behavior of the same name).
 
 A description may contain {tricks} or {actions}: the installed tricks, or the
 installed trick actions, one per line. A parameter's enum (the values Gemini
@@ -18,8 +22,12 @@ connects, and sends every call to POST /tools/<name>, which runs call() below.
 
 from __future__ import annotations
 
+import importlib
 import logging
+import sys
+import types
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from robot_api import Result, Robot
@@ -43,19 +51,44 @@ class Tool:
     description: str
     params: dict[str, Param]
     run: Callable[..., Awaitable[Result]]
+    module: str = ""
 
 
 TOOLS: dict[str, Tool] = {}
 
+# The lab's files, in the order of the lab. Gemini gets the tools in this order.
+LAB_DIR = Path(__file__).resolve().parent.parent / "lab"
+LAB_MODULES = ["basics", "part2_walk", "part3_follow", "part4_tricks", "part5_sit_stay_shake"]
 
-def tool(description: str, **params: Param):
-    """Register the function below as a tool. Its name is the function's name."""
+
+def tool(tool_name: str, description: str, /, **params: Param):
+    """Register the function below as the tool Gemini calls ``tool_name``. (The
+    ``/`` lets a tool have a parameter called name, like play_trick.)"""
 
     def register(fn):
-        TOOLS[fn.__name__] = Tool(fn.__name__, description, params, fn)
+        TOOLS[tool_name] = Tool(tool_name, description, params, fn, fn.__module__)
         return fn
 
     return register
+
+
+def load_lab() -> types.SimpleNamespace:
+    """Import every lab/ file (which registers its tools), and return everything
+    they define in one namespace: lab.walk, lab.check_move, lab.play_trick, ..."""
+    if str(LAB_DIR) not in sys.path:
+        sys.path.append(str(LAB_DIR))  # last, so a lab/ file never hides a provided module
+    names: dict[str, Any] = {}
+    for module in LAB_MODULES:
+        m = importlib.import_module(module)
+        names.update({k: v for k, v in vars(m).items() if not k.startswith("_")})
+    return types.SimpleNamespace(**names)
+
+
+def _in_lab_order(tools: list[Tool]) -> list[Tool]:
+    def key(t: Tool) -> int:
+        return LAB_MODULES.index(t.module) if t.module in LAB_MODULES else len(LAB_MODULES)
+
+    return sorted(tools, key=key)  # stable: within a file, in the order they are written
 
 
 def TRICK_NAMES(robot: Robot) -> list:
@@ -92,7 +125,7 @@ def _resolve(value, robot: Robot):
 def declarations(robot: Robot) -> list[dict]:
     """Every tool in the format Gemini expects."""
     out = []
-    for t in TOOLS.values():
+    for t in _in_lab_order(list(TOOLS.values())):
         props, required = {}, []
         for name, p in t.params.items():
             prop: dict[str, Any] = {"type": p.type.upper(), "description": p.description}

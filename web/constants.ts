@@ -5,7 +5,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   modelName: 'gemini-3.1-flash-live-preview',
   ttsModelName: 'gemini-3.1-flash-tts-preview',
   voiceName: 'Puck',
-  // Pupper's personality and rules live on the robot, in robot/prompt.md.
+  // Pupper's personality and rules live on the robot, in lab/prompt.md.
   extraInstructions: '',
   enableVideo: true,
   enableAudio: true,

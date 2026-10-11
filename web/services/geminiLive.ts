@@ -6,7 +6,7 @@ import RobotBridge from './robotBridge';
 
 /**
  * Gemini's tools and system prompt come from the robot (GET /tools): they are
- * written in Python, in robot/tools.py and robot/prompt.md. Every tool call is
+ * written in Python, in lab/ (lab/prompt.md, and the @tool functions). Every tool call is
  * sent back to the robot (POST /tools/<name>), and its {success, message} goes
  * to Gemini as the result. Only `speak` lives here: text-only models use it to
  * talk through the browser's speech synthesis.
@@ -132,7 +132,7 @@ export class GeminiLiveService {
       : config.modelName;
     const isAudioOutput = isAudioOutputModel(modelName);
 
-    // Ask the robot for Gemini's system prompt and tools (robot/prompt.md, robot/tools.py).
+    // Ask the robot for Gemini's system prompt and tools (lab/prompt.md, the tools in lab/).
     const spec: any = await this.robotBridge.getTools();
     const robotTools: FunctionDeclaration[] = Array.isArray(spec?.tools) ? spec.tools : [];
     if (robotTools.length) {
@@ -456,7 +456,7 @@ export class GeminiLiveService {
               }
               break;
             default:
-              // Every other tool is defined and run on the robot (robot/tools.py).
+              // Every other tool is defined and run on the robot (the tools in lab/).
               result = await this.robotBridge.callTool(fc.name, args ?? {});
           }
         } catch (e: any) {

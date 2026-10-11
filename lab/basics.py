@@ -1,0 +1,90 @@
+"""Basics: read this file first. Everything here is finished.
+
+Every lab/ file has the same two halves:
+
+  WHAT THE ROBOT DOES (a behavior): is the request allowed, do it, report what
+  happened. Every motion has the same shape:
+
+      async def behavior(robot, ...):
+          (1) NOW: check what can be checked right away; refuse with a reason
+          async def job():
+              (2) LATER, when the queue gets here: check again, act, report the outcome
+          (3) return await robot.queue(name, job, seconds)   # what Gemini hears now
+
+  WHAT GEMINI READS (a tool): an @tool(...) line with the tool's name, a
+  description, and a description of each parameter. Gemini decides when to
+  call a tool, and what to pass, from these words alone. The function under it
+  turns Gemini's words into numbers and calls a behavior. Whatever it returns
+  (a Result) goes back to Gemini: it is all Gemini learns about what happened.
+
+Why a queue? Gemini often asks for several things in one breath ("sit, then
+shake"). The queue runs them one at a time, in order, while Gemini keeps
+talking. So a tool replies as soon as its job is *accepted*; the job's
+*outcome* (done, fell over, controller failed) goes to the debug log and to
+robot_status.
+
+The Robot API (robot.queue, robot.switch_to, ...) is listed at the top of
+robot/robot_api.py. Directions use the robot's convention: positive y is LEFT,
+and a positive turn is to the LEFT (counter-clockwise).
+
+After you change a lab/ file: python3 lab/test.py, try it in text with
+python3 lab/chat.py, then restart (robot/stop.sh && robot/start.sh).
+"""
+
+from __future__ import annotations
+
+from part3_follow import leave_follow_mode
+from robot_api import WALK_READY_S, WALKING_CONTROLLER, Result, Robot, with_note
+from tool_registry import tool
+
+# Added to the description of every tool that ends follow mode (Part 3).
+ENDS_FOLLOW = (
+    " If follow mode is on, this ends it: first tell the user,"
+    ' e.g. "Let me stop following you and ...".'
+)
+
+
+# ============================================================ what the robot does
+async def stand_up(robot: Robot) -> Result:
+    """Stand up on the walking policy (also: stand up after a trick)."""
+    note = await leave_follow_mode(robot)  # (1) now: any motion ends follow mode (TODO 4)
+
+    async def job() -> Result:  # (2) later: give the legs to the walking policy
+        return await robot.switch_to(WALKING_CONTROLLER)
+
+    return with_note(note, await robot.queue("activate walking", job, WALK_READY_S))  # (3)
+
+
+async def lie_down(robot: Robot) -> Result:
+    """Relax every motor, so the robot lies down."""
+    note = await leave_follow_mode(robot)
+
+    async def job() -> Result:
+        return await robot.switch_to(None)  # None: no controller holds the legs
+
+    return with_note(note, await robot.queue("deactivate", job, 1.0))
+
+
+# ============================================================ what Gemini reads
+@tool("stand_up", "Stand up and turn on walking. Needed before moving, and to stand up after a trick." + ENDS_FOLLOW)
+async def stand_up_tool(robot: Robot) -> Result:
+    return await stand_up(robot)
+
+
+@tool(
+    "lie_down",
+    "Relax all motors so the robot lies down. Use when the user says sleep, relax"
+    " or lie down." + ENDS_FOLLOW,
+)
+async def lie_down_tool(robot: Robot) -> Result:
+    return await lie_down(robot)
+
+
+@tool("stop", "Emergency stop: cancel everything queued and stand still.")
+async def stop_tool(robot: Robot) -> Result:
+    return await robot.immediate_stop()
+
+
+@tool("robot_status", "Check what the robot is doing right now: walking, in a trick, following, motors off, or fallen over.")
+async def robot_status_tool(robot: Robot) -> Result:
+    return await robot.mode()

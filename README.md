@@ -16,32 +16,36 @@ This is the CS 123 version: tools in Python, trick policies, and safety checks.
 
 ## What's where
 
+You only work in `lab/`. Everything else is provided.
+
 ```
-  You speak ──► Gemini Live ──► tool call ──► tools.py       what Gemini reads; words → a robot command
-                     ▲                             │
-                     │                             ▼
-                     │                        behaviors.py   is it allowed, and what the robot does
-                     │                             │
-                     └──── the reply (a Result) ◄──┤
-                                                   ▼
-                                              robot_api.py   (provided) queue, controllers, falls, e-stop
+gemini_pupper/
+├── lab/                         ← you work here
+│   ├── prompt.md                who Pupper is and how it behaves        TODO 1, 5, 10
+│   ├── basics.py                read first: finished examples, nothing to write
+│   ├── part2_walk.py            check_move, then the turn and move tools  TODO 2, 3
+│   ├── part3_follow.py          the follow rule, then the follow tool     TODO 4, 5
+│   ├── part4_tricks.py          play_trick, then its words                TODO 6, 7
+│   ├── part5_sit_stay_shake.py  trick_action, then its words              TODO 8, 9
+│   ├── test.py                  python3 lab/test.py todo3   (tests with a fake robot)
+│   └── chat.py                  python3 lab/chat.py         (talk to Gemini in text)
+├── tricks/                      one folder per trick; sit_stay_shake lands here in Part 5
+├── robot/                       provided: the Robot API, the robot server, launch files, scripts
+├── web/                         provided: the web app (TypeScript); you never need it
+└── docs/
 ```
 
-| File | What it is | Yours? |
-| --- | --- | --- |
-| `robot/prompt.md` | Gemini's system prompt: who Pupper is, how it behaves | TODO 1, 6, 11 |
-| `robot/tools.py` | Every tool Gemini can call: what Gemini reads, and a short body | TODO 4, 6, 8, 10 |
-| `robot/behaviors.py` | What the robot does: check, queue a job, report | TODO 2, 3, 5, 7, 9 |
-| `robot/test_tools.py` | Tests with a fake robot: `python3 robot/test_tools.py todo3` | run them |
-| `robot/chat.py` | Talk to Gemini in text and watch every tool call: `--toy` (Peng's demo), your tools on a fake robot (default), or `--robot` | run it |
-| `tricks/sit_stay_shake/` | The clip trick you train in Part 5 (`get_trick.py` makes it) | TODO 10 (its `trick.yaml`) |
-| `robot/robot_api.py` | The Robot API: the queue, the legs, falls, follow mode, the e-stop | no: read the table at the top |
-| `robot/tool_registry.py` | Turns `@tool` functions into what Gemini reads | no |
-| everything else | the web app, the robot server, the launch files | no |
+Every file in `lab/` has the same two halves, in order. First **what the robot
+does** (a behavior: is it allowed, do it, report what happened), then **what
+Gemini reads** (an `@tool` with the tool's name, its description, and a short
+body). The TODOs are numbered 1–10 in the order of the lab handout. Each one
+has a short card in the code: what happens now, what happens later, what Gemini
+hears, what must always be true, and which test checks it. The finished
+functions (`stand_up`, `walk`, `play_policy_trick`, …) are there to read: the
+lab asks you to explain them.
 
-The TODOs are numbered 1–11 in the order of the lab handout. Each one has a
-short card in the code: what happens now, what happens later, what Gemini
-hears, what must always be true, and which test checks it.
+The Robot API you call (`robot.queue`, `robot.switch_to`, …) is listed at the
+top of `robot/robot_api.py`.
 
 ## Setup (once, on the Pupper)
 
@@ -79,24 +83,24 @@ whatever Gemini is doing.
 
 ## Talk to Gemini in text
 
-`robot/chat.py` (based on Peng Xu's Gemini Live example) runs the same loop as
+`lab/chat.py` (based on Peng Xu's Gemini Live example) runs the same loop as
 the web app, in your terminal: you type, Gemini calls tools, and you see every
-call and every reply. It needs `python3 -m pip install --user google-genai`
+call and every reply. It needs `python3 -m pip install --user google-genai pyyaml`
 (`setup.sh` installs it on the Pupper) and your key in `GEMINI_API_KEY` or
 `~/.config/gemini-pupper/api_key`.
 
 ```bash
-python3 robot/chat.py --toy      # one toy tool that only prints: see how the loop works
-python3 robot/chat.py            # your prompt and tools, on a fake robot: nothing moves
-python3 robot/chat.py --robot    # your tools on the real Pupper (through the robot server): it moves!
+python3 lab/chat.py --toy      # one toy tool that only prints: see how the loop works
+python3 lab/chat.py            # your prompt and tools, on a fake robot: nothing moves
+python3 lab/chat.py --robot    # your tools on the real Pupper (through the robot server): it moves!
 ```
 
 ## After you change something
 
 | You changed | Then |
 | --- | --- |
-| `robot/prompt.md` | reconnect in the app |
-| `robot/tools.py` or `robot/behaviors.py` | `python3 robot/test_tools.py`, then `robot/stop.sh && robot/start.sh` |
+| `lab/prompt.md` | try it in text (`python3 lab/chat.py`), then reconnect in the app |
+| a `.py` file in `lab/` | `python3 lab/test.py`, try it in text, then `robot/stop.sh && robot/start.sh` |
 | a trick (`get_trick.py` or a `trick.yaml`) | `robot/stop.sh && robot/start.sh` |
 
 ## Tricks

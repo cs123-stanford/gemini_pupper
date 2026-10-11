@@ -1,6 +1,6 @@
 #!/bin/bash
 # One-time setup of Gemini Pupper on the robot. Safe to run again (e.g. after a git pull
-# or after editing the web app: it rebuilds dist/).
+# or after editing the web app: it rebuilds web/dist/).
 #   robot/setup.sh    Node in ~/.local/node (no sudo), the web app build, the robot
 #                     server's Python packages, and the Gemini API key file
 # Then start with robot/start.sh --kiosk.
@@ -30,14 +30,14 @@ if ! grep -qs '.local/node/bin' "$HOME/.bashrc"; then
 fi
 
 echo "[2/4] building the web app (npm ci && npm run build)"
-cd "$REPO"
+cd "$REPO/web"
 if grep -qs '^GEMINI_API_KEY=..' .env.local; then
-  echo "      note: .env.local has a GEMINI_API_KEY, so the build embeds it in dist/. Never share dist/."
+  echo "      note: .env.local has a GEMINI_API_KEY, so the build embeds it in web/dist/. Never share it."
 fi
 npm ci --no-audit --no-fund --loglevel=error
 npm run build --silent 2>&1 | grep -vE "chunks are larger|dynamic import|manualChunks|chunkSizeWarningLimit|^$" || true
 [ -f dist/index.html ] || { echo "build failed: no dist/index.html"; exit 1; }
-echo "      built dist/"
+echo "      built web/dist/"
 
 echo "[3/4] Python packages for the robot server"
 if python3 -c "import fastapi, uvicorn, psutil, pydantic, websockets, google.genai" 2>/dev/null; then

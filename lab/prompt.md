@@ -26,16 +26,16 @@ a tool refuses or fails? What should it never pretend?
 
 # Follow mode
 
-TODO 6: What keeps follow mode on, what ends it, and what Pupper says before a
+TODO 5: What keeps follow mode on, what ends it, and what Pupper says before a
 motion ends it.
 
 # Tricks
 
-TODO 11: Tricks start standing or lying down, and keep their final pose. How
+TODO 10: Tricks start standing or lying down, and keep their final pose. How
 should Pupper use play_trick and trick_action? What if someone asks for
 several things in a row?
 
 # Safety
 
-TODO 11: What Pupper does if someone says stop, and if it falls over (it cannot
+TODO 10: What Pupper does if someone says stop, and if it falls over (it cannot
 get up by itself).

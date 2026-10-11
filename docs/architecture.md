@@ -30,7 +30,7 @@ flowchart LR
 
     subgraph Robot["Pupper on the local network"]
         API["robot/server.py<br/>FastAPI, port 8000"]
-        Agent["tools.py + behaviors.py<br/>Gemini's tools"]
+        Agent["lab/<br/>Gemini's tools"]
         Tools["robot_api.py<br/>queue, controllers"]
         ROS["Pupper ROS services"]
         Hardware["Motors, camera, battery,<br/>speaker, person tracking"]
@@ -56,12 +56,12 @@ flowchart LR
 
 | Area | Responsibility | Important code |
 |---|---|---|
-| Cloud Run | Builds and serves the static browser application through nginx | [Dockerfile](../Dockerfile), [nginx.conf](../nginx.conf) |
-| React application | Owns UI state, settings, logs, connection state, and periodic status polling | [App.tsx](../App.tsx) |
-| Gemini integration | Captures media, opens the Live session, plays audio, executes tool calls, and returns tool results | [services/geminiLive.ts](../services/geminiLive.ts) |
-| Robot bridge | Maps browser operations to the robot's HTTP API | [services/robotBridge.ts](../services/robotBridge.ts) |
+| Cloud Run | Builds and serves the static browser application through nginx | [Dockerfile](../web/Dockerfile), [nginx.conf](../web/nginx.conf) |
+| React application | Owns UI state, settings, logs, connection state, and periodic status polling | [App.tsx](../web/App.tsx) |
+| Gemini integration | Captures media, opens the Live session, plays audio, executes tool calls, and returns tool results | [web/services/geminiLive.ts](../web/services/geminiLive.ts) |
+| Robot bridge | Maps browser operations to the robot's HTTP API | [web/services/robotBridge.ts](../web/services/robotBridge.ts) |
 | Robot API | Exposes control, camera, tracking, and telemetry endpoints on port 8000 | [robot/server.py](../robot/server.py) |
-| Gemini's tools | The prompt, what Gemini reads about each tool, and what each tool does | [robot/prompt.md](../robot/prompt.md), [robot/tools.py](../robot/tools.py), [robot/behaviors.py](../robot/behaviors.py) |
+| Gemini's tools | The prompt, what Gemini reads about each tool, and what each tool does | [lab/prompt.md](../lab/prompt.md) and the `@tool`s and behaviors in [lab/](../lab/) |
 | Robot side | The job queue, leg-controller switching, clip tricks, falls, follow mode, the e-stop | [robot/robot_api.py](../robot/robot_api.py) |
 | Robot stack | Converts high-level requests into queued ROS motion and behavior operations | [Pupper v3 monorepo](https://github.com/Nate711/pupperv3-monorepo) |
 
@@ -76,7 +76,7 @@ sequenceDiagram
     participant Browser as Browser app
     participant Gemini as Gemini Live
     participant RobotAPI as Robot FastAPI
-    participant ROS as tools.py + behaviors.py + robot_api.py
+    participant ROS as lab/ + robot_api.py
     participant Pupper as Robot hardware
 
     Person->>Browser: Speaks and appears on camera
@@ -134,14 +134,14 @@ flowchart TB
 
     subgraph Server["FastAPI process on port 8000"]
         Routes["FastAPI routes"]
-        Agent["tools.py (tool_registry.py)<br/>checks each call, words to numbers"]
+        Agent["tool_registry.py + lab/ tools<br/>checks each call, words to numbers"]
         Status["Status collectors<br/>battery, CPU, services, network"]
         Camera["Latest ROS JPEG queue"]
         Broadcast["Detection broadcaster"]
     end
 
     subgraph RobotStack["Robot processes"]
-        ToolServer["behaviors.py + robot_api.py<br/>check now, queue a job"]
+        ToolServer["lab/ behaviors + robot_api.py<br/>check now, queue a job"]
         Motion["Motion and animation queues"]
         Follow["Person-follow behavior"]
         CameraROS["ROS camera"]
@@ -163,7 +163,7 @@ flowchart TB
 
 | Purpose | Method and path | Browser caller |
 |---|---|---|
-| Gemini's prompt and tools | `GET /tools` (robot/prompt.md, robot/tools.py) | Session setup |
+| Gemini's prompt and tools | `GET /tools` (lab/prompt.md, the tools in lab/) | Session setup |
 | Run one of Gemini's tools | `POST /tools/<name>` | Every Gemini tool call |
 | Activate or relax motors | `POST /walking/activate`, `POST /walking/deactivate` | Wake/sleep tools |
 | Move with velocities | `POST /move/velocity` | Debug controls |
@@ -248,6 +248,6 @@ The default robot URL is `http://localhost:8000`. This works when Chrome runs on
 ## Related documentation
 
 - [Project overview and setup](interactive-robot-dog.md)
-- [Robot-side server](../robot/server.py), [the tools](../robot/tools.py), [the behaviors](../robot/behaviors.py), [the Robot API](../robot/robot_api.py)
+- [Robot-side server](../robot/server.py), [the lab: tools and behaviors](../lab/), [the Robot API](../robot/robot_api.py)
 - [Repository README](../README.md)
 - [Pupper v3 robot stack](https://github.com/Nate711/pupperv3-monorepo)

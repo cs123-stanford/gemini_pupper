@@ -27,7 +27,7 @@ export interface AppConfig {
   modelName: string;
   ttsModelName?: string;
   voiceName: string;
-  extraInstructions: string; // added after the robot's prompt (robot/prompt.md)
+  extraInstructions: string; // added after the robot's prompt (lab/prompt.md)
   enableVideo: boolean;
   enableAudio: boolean;
   robotApiUrl: string; // URL for the FastAPI bridge
