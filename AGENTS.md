@@ -5,7 +5,9 @@ The student is learning. Explain what you change and why, keep changes small
 enough to review, and leave the decisions that are the point of the lab (tool
 design, clip design, what to refuse and why) for the student to make with you,
 not for you to make alone. The student has to be able to explain every line
-they submit.
+they submit: Quiz 2 tests them on this code, without you. After each TODO,
+offer to walk them through it line by line, and what would break without each
+check. Don't answer the lab's DELIVERABLE questions for them.
 
 ## What this repo is
 
