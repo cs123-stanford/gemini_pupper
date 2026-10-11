@@ -76,7 +76,7 @@ sequenceDiagram
     participant Browser as Browser app
     participant Gemini as Gemini Live
     participant RobotAPI as Robot FastAPI
-    participant ROS as tools.py, behaviors.py, robot_api.py / ROS
+    participant ROS as tools.py + behaviors.py + robot_api.py
     participant Pupper as Robot hardware
 
     Person->>Browser: Speaks and appears on camera
@@ -91,7 +91,7 @@ sequenceDiagram
     RobotAPI-->>Browser: JSON result
     Browser->>Gemini: Tool response
     ROS->>Pupper: Later, when the queue gets there: switch to the walking or trick policy
-    Pupper-->>ROS: Outcome (logged; robot_status reports the state)
+    Pupper-->>ROS: Outcome, in the debug log and robot_status
 ```
 
 A manual button in the debug view enters the same path at the browser-to-robot HTTP step, bypassing Gemini. This makes it useful for checking the robot connection and motion APIs independently.
