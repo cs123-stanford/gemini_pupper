@@ -1,29 +1,25 @@
 """The tools Gemini can call.
 
-Each tool is one Python function with a @tool line above it. The @tool line is
-what Gemini reads: a description and the parameters. Gemini decides when to
-call a tool, and what to pass, from these words alone. The function is what
-runs on the robot. Whatever it returns (a Result) is sent back to Gemini, so
-Gemini knows what really happened.
+Each tool is one Python function with an @tool(...) line above it.
+  - The @tool line is what Gemini reads: a description, and a description of
+    each parameter. Gemini decides when to call a tool, and what to pass, from
+    these words alone, so put the robot's real limits in them.
+  - The function is what runs on the robot. Keep it short: turn Gemini's words
+    into numbers, and call a behavior (behaviors.py). Whatever it returns (a
+    Result) goes back to Gemini, so Gemini knows what really happened.
 
-The web app asks the robot server for this list (GET /tools) when it connects,
-and sends every tool call to POST /tools/<name>. So after you change this file,
-restart the server (robot/stop.sh, then robot/start.sh) and reconnect: no web
-app rebuild needed.
+After you change this file: python3 robot/test_tools.py, then restart
+(robot/stop.sh && robot/start.sh) and reconnect in the app.
 
-Directions here use the robot's convention: positive y is LEFT, and a positive
-turn is to the LEFT (counter-clockwise).
+Directions use the robot's convention: positive y is LEFT, and a positive turn
+is to the LEFT (counter-clockwise).
 """
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
-
-from tool_server import LIMITS, Result, ToolServer
-
-log = logging.getLogger("tools")
+import behaviors
+from robot_api import LIMITS, Result, Robot, not_written  # noqa: F401
+from tool_registry import ACTION_IDS, TRICK_NAMES, Param, call, declarations, tool  # noqa: F401
 
 # "Run" means at least this fast, in m/s (the walking policy switches to its
 # running gait above about 0.5 m/s).
@@ -31,215 +27,132 @@ RUN_MIN_SPEED = 1.0
 RUN_DEFAULT_SPEED = 1.2
 TURN_SPEED = 60.0  # deg/s
 
-# Added to every motion tool's description.
+# Added to the description of every tool that ends follow mode (see TODO 5 and 6).
 ENDS_FOLLOW = (
-  " If follow mode is on, this ends it: first tell the user,"
-  ' e.g. "Let me stop following you and ...".'
+    " If follow mode is on, this ends it: first tell the user,"
+    ' e.g. "Let me stop following you and ...".'
 )
 
 
-# --------------------------------------------------------------------- the registry
-@dataclass
-class Param:
-  """One parameter of a tool, as Gemini sees it."""
-
-  type: str  # "string", "number", "integer" or "boolean"
-  description: str
-  enum: list | Callable[[ToolServer], list] | None = None  # allowed values
-  required: bool = True
-
-
-@dataclass
-class Tool:
-  name: str
-  description: str | Callable[[ToolServer], str]
-  params: dict[str, Param]
-  run: Callable[..., Awaitable[Result]]
-
-
-TOOLS: dict[str, Tool] = {}
-
-
-def tool(description: str | Callable[[ToolServer], str], **params: Param):
-  """Register the function below as a tool. Its name is the function's name.
-
-  ``description`` (and a Param's ``enum``) may be a function of the robot, for
-  lists that depend on what is installed, like the tricks.
-  """
-
-  def register(fn):
-    TOOLS[fn.__name__] = Tool(fn.__name__, description, params, fn)
-    return fn
-
-  return register
-
-
-def _resolve(value, robot: ToolServer):
-  return value(robot) if callable(value) else value
-
-
-def declarations(robot: ToolServer) -> list[dict]:
-  """Every tool in the format Gemini expects. A tool whose choices list is
-  empty (say, no trick actions installed) is left out."""
-  out = []
-  for t in TOOLS.values():
-    props, required, empty = {}, [], False
-    for name, p in t.params.items():
-      prop: dict[str, Any] = {"type": p.type.upper(), "description": p.description}
-      enum = _resolve(p.enum, robot)
-      if enum is not None:
-        if not enum:
-          empty = True
-        prop["enum"] = [str(v) for v in enum]
-      props[name] = prop
-      if p.required:
-        required.append(name)
-    if empty:
-      continue
-    decl: dict[str, Any] = {"name": t.name, "description": _resolve(t.description, robot)}
-    if props:
-      decl["parameters"] = {"type": "OBJECT", "properties": props, "required": required}
-    out.append(decl)
-  return out
-
-
-_TYPES = {"string": (str,), "number": (int, float), "integer": (int,), "boolean": (bool,)}
-
-
-async def call(robot: ToolServer, name: str, args: dict) -> Result:
-  """Check a tool call against its declaration, then run it."""
-  t = TOOLS.get(name)
-  if t is None:
-    return Result(False, f"unknown tool {name}; the tools are {sorted(TOOLS)}")
-  args = dict(args or {})
-  extra = sorted(set(args) - set(t.params))
-  if extra:
-    return Result(False, f"{name} has no parameter {extra}; it takes {sorted(t.params)}")
-  for pname, p in t.params.items():
-    if pname not in args:
-      if p.required:
-        return Result(False, f"{name} needs {pname}: {p.description}")
-      continue
-    v = args[pname]
-    if isinstance(v, bool) and p.type != "boolean" or not isinstance(v, _TYPES[p.type]):
-      return Result(False, f"{name}: {pname} must be a {p.type}, not {v!r}")
-    enum = _resolve(p.enum, robot)
-    if enum is not None and v not in enum:
-      return Result(False, f"{name}: {pname} must be one of {list(enum)}, not {v!r}")
-  try:
-    return await t.run(robot, **args)
-  except Exception as e:  # a bug in a tool must not crash the server
-    log.exception("tool %s failed", name)
-    return Result(False, f"{name} failed on the robot: {type(e).__name__}: {e}")
-
-
-# --------------------------------------------------------------------- basic tools
+# ============================================================ provided tools (read these first)
 @tool("Stand up and turn on walking. Needed before moving, and to stand up after a trick." + ENDS_FOLLOW)
-async def stand_up(robot: ToolServer) -> Result:
-  return await robot.activate_walking()
+async def stand_up(robot: Robot) -> Result:
+    return await behaviors.stand_up(robot)
 
 
 @tool(
-  "Relax all motors so the robot lies down. Use when the user says sleep, relax"
-  " or lie down." + ENDS_FOLLOW
+    "Relax all motors so the robot lies down. Use when the user says sleep, relax"
+    " or lie down." + ENDS_FOLLOW
 )
-async def lie_down(robot: ToolServer) -> Result:
-  return await robot.deactivate()
+async def lie_down(robot: Robot) -> Result:
+    return await behaviors.lie_down(robot)
 
 
 @tool("Emergency stop: cancel everything queued and stand still.")
-async def stop(robot: ToolServer) -> Result:
-  return await robot.immediate_stop()
+async def stop(robot: Robot) -> Result:
+    return await robot.immediate_stop()
 
 
 @tool("Check what the robot is doing right now: walking, in a trick, following, motors off, or fallen over.")
-async def robot_status(robot: ToolServer) -> Result:
-  return await robot.mode()
+async def robot_status(robot: Robot) -> Result:
+    return await robot.mode()
 
 
-def _trick_list(robot: ToolServer) -> str:
-  return "\n".join(f'- "{name}": {t.description}' for name, t in robot.tricks.items())
-
-
+# ============================================================ Part 4: play_trick
+# TODO 8: describe play_trick for Gemini. {tricks} in a description becomes the
+# list of installed tricks (each with its description from its trick.yaml).
+# Gemini needs to know that each trick says whether it starts standing or lying
+# down, and that the robot keeps a trick's final pose until the next motion.
+# ========== TODO 8: YOUR CODE HERE ==========
 @tool(
-  lambda robot: (
-    "Play a trick. Each says whether it starts standing or lying down; from the"
-    " other pose it still plays but looks wrong. A trick keeps its final pose"
-    " until the next motion or stand_up." + ENDS_FOLLOW + "\nTricks:\n" + _trick_list(robot)
-  ),
-  name=Param("string", "The exact trick name.", enum=lambda robot: list(robot.tricks)),
+    "TODO 8: describe play_trick for Gemini." + ENDS_FOLLOW + "\nTricks:\n{tricks}",
+    name=Param("string", "TODO 8", enum=TRICK_NAMES),
 )
-async def play_trick(robot: ToolServer, name: str) -> Result:
-  return await robot.trick(name)
+# ====================================
+async def play_trick(robot: Robot, name: str) -> Result:
+    return await behaviors.play_trick(robot, name)
 
 
-# --------------------------------------------------------------------- your tools
-# ========== YOUR CODE HERE: Part 1: motion tools ==========
-# TODO(student): finish move, turn and follow below. For each one:
-# 1. Write the description and the parameter descriptions. Gemini picks a tool,
-#    and fills in its parameters, from these words alone. Put the robot's real
-#    limits in them (LIMITS.vx_max and so on), and add ENDS_FOLLOW to motion tools.
-# 2. Write the body. It calls the robot (robot.move(...), robot.set_following(...))
-#    and returns the Result, so Gemini hears what really happened.
-# Directions: the robot's +y is LEFT, and a positive turn is to the LEFT.
-
-
+# ============================================================ Part 2: move and turn
+# TODO 4: write what Gemini reads about move and turn (the descriptions and every
+# parameter's description), and their bodies.
+#   - Put the robot's real limits in the words: LIMITS.vx_max and the others
+#     (robot_api.py), RUN_MIN_SPEED, and the defaults. Add ENDS_FOLLOW.
+#   - The body turns direction/run/speed/duration into vx (forward) and vy (left)
+#     in m/s, and calls behaviors.walk(robot, vx, vy, 0.0, duration). Default
+#     speed 0.4 m/s.
+#   - "Run" means RUN_MIN_SPEED (1.0 m/s) or faster, forward or backward (sideways
+#     never runs; default RUN_DEFAULT_SPEED). Make sure of that here, in code, not
+#     only in the description.
+#   - turn turns in place at TURN_SPEED deg/s for as long as `angle` takes:
+#     behaviors.walk(robot, 0.0, 0.0, wz_deg, seconds). Left is positive.
+#   Test: python3 robot/test_tools.py todo4
+# ========== TODO 4: YOUR CODE HERE ==========
 @tool(
-  "TODO(student): describe the move tool for Gemini.",
-  direction=Param("string", "TODO(student)", enum=["forward", "backward", "left", "right"]),
-  run=Param("boolean", "TODO(student)", required=False),
-  speed=Param("number", "TODO(student)", required=False),
-  duration=Param("number", "TODO(student)", required=False),
+    "TODO 4: describe the move tool for Gemini.",
+    direction=Param("string", "TODO 4", enum=["forward", "backward", "left", "right"]),
+    run=Param("boolean", "TODO 4", required=False),
+    speed=Param("number", "TODO 4", required=False),
+    duration=Param("number", "TODO 4", required=False),
 )
 async def move(
-  robot: ToolServer,
-  direction: str,
-  run: bool = False,
-  speed: float | None = None,
-  duration: float = 1.5,
+    robot: Robot,
+    direction: str,
+    run: bool = False,
+    speed: float | None = None,
+    duration: float = 1.5,
 ) -> Result:
-  # TODO(student): turn direction/run/speed/duration into vx (forward) and vy
-  # (left) in m/s, then `return await robot.move(vx, vy, 0.0, duration)`.
-  # In this lab, "run" means RUN_MIN_SPEED (1.0 m/s) or faster, forward or
-  # backward. Make sure of it here, in code, not only in the description.
-  return Result(False, "move is not implemented yet: TODO(student) in robot/tools.py")
+    # 1. The speed. Running (run is True, and not sideways): at least RUN_MIN_SPEED,
+    #    or RUN_DEFAULT_SPEED if no speed was given. Otherwise: speed, or 0.4 if none was given.
+    #    (max(a, b) gives the bigger of two numbers.)
+    # 2. vx (forward): +speed forward, -speed backward, 0.0 sideways.
+    #    vy (LEFT is +): +speed left, -speed right, 0.0 forward or backward.
+    # 3. return await behaviors.walk(robot, vx, vy, 0.0, duration)
+    return not_written("TODO 4", "move in robot/tools.py")
 
 
 @tool(
-  "TODO(student): describe the turn tool for Gemini.",
-  direction=Param("string", "TODO(student)", enum=["left", "right"]),
-  angle=Param("number", "TODO(student)", required=False),
+    "TODO 4: describe the turn tool for Gemini.",
+    direction=Param("string", "TODO 4", enum=["left", "right"]),
+    angle=Param("number", "TODO 4", required=False),
 )
-async def turn(robot: ToolServer, direction: str, angle: float = 45.0) -> Result:
-  # TODO(student): turn in place at TURN_SPEED deg/s for as long as `angle`
-  # takes: robot.move(0.0, 0.0, wz_deg, seconds). Left is positive.
-  return Result(False, "turn is not implemented yet: TODO(student) in robot/tools.py")
+async def turn(robot: Robot, direction: str, angle: float = 45.0) -> Result:
+    # 1. wz_deg: +TURN_SPEED to the left (counter-clockwise), -TURN_SPEED to the right.
+    # 2. How long it takes: seconds = abs(angle) / TURN_SPEED
+    # 3. return await behaviors.walk(robot, 0.0, 0.0, wz_deg, seconds)
+    return not_written("TODO 4", "turn in robot/tools.py")
+# ====================================
 
 
+# ============================================================ Part 3: follow
+# TODO 6: describe follow for Gemini, and write its body: robot.set_following(enabled)
+# (provided) starts or stops the person follower. Gemini should know what keeps
+# follow mode on and what ends it (your rule in TODO 5).
+#   Test: python3 robot/test_tools.py todo6
+# ========== TODO 6: YOUR CODE HERE ==========
 @tool(
-  "TODO(student): describe the follow tool for Gemini.",
-  enabled=Param("boolean", "TODO(student)"),
+    "TODO 6: describe the follow tool for Gemini.",
+    enabled=Param("boolean", "TODO 6"),
 )
-async def follow(robot: ToolServer, enabled: bool) -> Result:
-  # TODO(student): robot.set_following(enabled) starts or stops following.
-  return Result(False, "follow is not implemented yet: TODO(student) in robot/tools.py")
+async def follow(robot: Robot, enabled: bool) -> Result:
+    # One line: robot.set_following(enabled) (provided) starts or stops following, and
+    # returns the Result Gemini should hear. Await it and return it.
+    return not_written("TODO 6", "follow in robot/tools.py")
+# ====================================
 
 
-# ========== YOUR CODE HERE: Part 2: the trick_action tool ==========
-def _action_list(robot: ToolServer) -> str:
-  """The installed actions, one per line, for your description."""
-  return "\n".join(
-    f'- "{aid}" (during "{t.name}"): {t.actions[clip]}' for aid, (t, clip) in robot.action_ids().items()
-  )
-
-
+# ============================================================ Part 5: trick actions
+# TODO 10: describe trick_action for Gemini, and write its body (it calls
+# behaviors.trick_action). {actions} in a description becomes the list of
+# installed actions, each with its trick and its description from trick.yaml.
+# Say what has to happen first, and what ends it.
+#   Test: python3 robot/test_tools.py todo10
+# ========== TODO 10: YOUR CODE HERE ==========
 @tool(
-  # TODO(student): describe trick_action for Gemini. A description can be a
-  # function of the robot, like play_trick's above, so it can list the actions
-  # with _action_list(robot). Say what has to happen first.
-  lambda robot: "TODO(student): describe trick_action for Gemini.",
-  action=Param("string", "TODO(student)", enum=lambda robot: list(robot.action_ids())),
+    "TODO 10: describe trick_action for Gemini. Actions:\n{actions}",
+    action=Param("string", "TODO 10", enum=ACTION_IDS),
 )
-async def trick_action(robot: ToolServer, action: str) -> Result:
-  # TODO(student): call the robot side (robot.trick_action) and return its Result.
-  return Result(False, "trick_action is not implemented yet: TODO(student) in robot/tools.py")
+async def trick_action(robot: Robot, action: str) -> Result:
+    # One line: call behaviors.trick_action(robot, action) (your TODO 9), await it, and return it.
+    return not_written("TODO 10", "trick_action in robot/tools.py")
+# =====================================

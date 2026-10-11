@@ -13,17 +13,24 @@ Pupper is a real robot dog: 12 motors, a Raspberry Pi, a camera. Gemini Live
 (in the browser) talks with people and calls **tools**. The tools are Python:
 the web app gets Gemini's prompt (`robot/prompt.md`) and tool list
 (`robot/tools.py`) from the robot server (`robot/server.py`, port 8000), and
-sends every tool call back to it. `robot/tool_server.py` runs the motions one
-at a time and drives the ROS 2 controllers. Trick policies are trained in
-pupper-mjlab and fetched from W&B with `robot/get_trick.py`.
+sends every tool call back to it. A tool's body calls a behavior in
+`robot/behaviors.py`, which checks the request, queues a job and returns a
+Result. `robot/robot_api.py` (provided) runs the jobs one at a time and drives
+the ROS 2 controllers. Trick policies are trained in pupper-mjlab and fetched
+from W&B with `robot/get_trick.py`.
 
-| Student work (`YOUR CODE HERE` / `TODO(student)`) | Provided (don't rewrite) |
+The student TODOs are numbered 1-11 in the order of the lab handout, each with
+a card in the code (now / later / what Gemini hears / must always be true /
+test). Work on one TODO at a time, and run its test group:
+`python3 robot/test_tools.py todo3`.
+
+| Student work (`TODO n: YOUR CODE HERE`) | Provided (don't rewrite) |
 | --- | --- |
-| `robot/prompt.md`: Gemini's prompt | The web app (`App.tsx`, `components/`, `services/`): students don't need to touch TypeScript |
-| `robot/tools.py`: `move`, `turn`, `follow`, `trick_action` (descriptions and code) | The tool registry and the basic tools at the top of `tools.py` |
-| `robot/tool_server.py`: `check_move`, `move`'s walking loop, `_leave_follow_mode`, `trick_action` | The queue, controller switching, tricks, clips and fall recovery in `tool_server.py` |
-| `tricks/sit_stay_shake/trick.yaml` (after training): description, `actions`, `exit_clip` | `robot/server.py`, `robot/tricks.py`, `robot/launch/`, the shell scripts, `kiosk.py`, `get_trick.py` |
-| In pupper-mjlab: `tricks/sit_stay_shake.py` (or the Sit_Stay_Shake notebook): `cut`, `hold`, `mirror`, the clips and `ORDER` | The rest of pupper-mjlab |
+| `robot/prompt.md`: TODO 1, 6, 11 | The web app (`App.tsx`, `components/`, `services/`): students don't need to touch TypeScript |
+| `robot/tools.py`: TODO 4 (`move`, `turn`), 6 (`follow`), 8 (`play_trick`), 10 (`trick_action`) | The provided tools at the top of `tools.py`, and `robot/tool_registry.py` |
+| `robot/behaviors.py`: TODO 2 (`check_move`), 3 (`walk`), 5 (`leave_follow_mode`), 7 (`play_trick`), 9 (`trick_action`) | `robot/robot_api.py`: the queue, controller switching, clips, falls, the e-stop |
+| `tricks/sit_stay_shake/trick.yaml` (after training): description and `actions` (TODO 10) | `robot/server.py`, `robot/tricks.py`, `robot/launch/`, the shell scripts, `kiosk.py`, `get_trick.py` |
+| In pupper-mjlab: the Sit_Stay_Shake notebook (or `tricks/sit_stay_shake.py`): `cut`, `hold`, `mirror`, the clips and `ORDER` | The rest of pupper-mjlab |
 
 If a provided file looks wrong, tell the student and let them ask a TA; don't
 patch infrastructure to make a symptom go away.
@@ -55,9 +62,10 @@ patch infrastructure to make a symptom go away.
 
 ## How to check work without the robot
 
-- `python3 robot/test_tools.py` (or `part1` / `part2` / `robot`): tests with a
-  fake robot. Run them after every change to `tools.py` or `tool_server.py`.
-  They check what the tools do, not how they are written.
+- `python3 robot/test_tools.py` (or `todo1` ... `todo11`, `part1` ... `part6`,
+  `robot`): tests with a fake robot. Run them after every change to
+  `prompt.md`, `tools.py` or `behaviors.py`. They check what the tools do, not
+  how they are written.
 - In pupper-mjlab: `uv run python -m mjlab.tasks.tracking.config.pupper.tricks.sit_stay_shake`
   checks `cut`, `hold` and `mirror` and builds the library;
   `uv run python -m mjlab.tasks.tracking.config.pupper.play_motion <motion>.npz`
@@ -69,11 +77,12 @@ patch infrastructure to make a symptom go away.
   message. Say what happened, or what was wrong and what would work instead.
 - Rules are enforced on the robot, not only in the prompt: the prompt and the
   tool descriptions tell Gemini what to do; the code makes sure it happens.
-- Motion goes through the queue (`_enqueue`); use `await asyncio.sleep`, never
-  `time.sleep`, in the server.
+- Motion goes through the queue (`robot.queue`): check now, queue a job, and
+  the job checks again, acts and reports. Wait with `await robot.sleep(...)`,
+  never `time.sleep`.
 - Units: metres, seconds, degrees. Directions use the robot's convention:
   +y is left, and a positive turn is to the left.
-- After changing `tools.py` or `tool_server.py`, restart the server
+- After changing `tools.py` or `behaviors.py`, restart the server
   (`robot/stop.sh`, then `robot/start.sh`). After changing `prompt.md`,
   reconnect in the app.
 - The robot is called Pupper. Gemini Pupper was created by Peng Xu (Google

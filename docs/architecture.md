@@ -29,9 +29,9 @@ flowchart LR
     end
 
     subgraph Robot["Pupper on the local network"]
-        API["FastAPI local server<br/>port 8000"]
-        Agent["PupsterAgent"]
-        Tools["RosToolServer"]
+        API["robot/server.py<br/>FastAPI, port 8000"]
+        Agent["tools.py + behaviors.py<br/>Gemini's tools"]
+        Tools["robot_api.py<br/>queue, controllers"]
         ROS["Pupper ROS services"]
         Hardware["Motors, camera, battery,<br/>speaker, person tracking"]
     end
@@ -60,7 +60,9 @@ flowchart LR
 | React application | Owns UI state, settings, logs, connection state, and periodic status polling | [App.tsx](../App.tsx) |
 | Gemini integration | Captures media, opens the Live session, plays audio, executes tool calls, and returns tool results | [services/geminiLive.ts](../services/geminiLive.ts) |
 | Robot bridge | Maps browser operations to the robot's HTTP API | [services/robotBridge.ts](../services/robotBridge.ts) |
-| Robot API | Exposes control, camera, tracking, and telemetry endpoints on port 8000 | [robot/local_server.py](../robot/local_server.py) |
+| Robot API | Exposes control, camera, tracking, and telemetry endpoints on port 8000 | [robot/server.py](../robot/server.py) |
+| Gemini's tools | The prompt, what Gemini reads about each tool, and what each tool does | [robot/prompt.md](../robot/prompt.md), [robot/tools.py](../robot/tools.py), [robot/behaviors.py](../robot/behaviors.py) |
+| Robot side | The job queue, leg-controller switching, clip tricks, falls, follow mode, the e-stop | [robot/robot_api.py](../robot/robot_api.py) |
 | Robot stack | Converts high-level requests into queued ROS motion and behavior operations | [Pupper v3 monorepo](https://github.com/Nate711/pupperv3-monorepo) |
 
 ## End-to-end conversation and action
@@ -74,7 +76,7 @@ sequenceDiagram
     participant Browser as Browser app
     participant Gemini as Gemini Live
     participant RobotAPI as Robot FastAPI
-    participant ROS as RosToolServer / ROS
+    participant ROS as tools.py, behaviors.py, robot_api.py / ROS
     participant Pupper as Robot hardware
 
     Person->>Browser: Speaks and appears on camera
@@ -84,12 +86,12 @@ sequenceDiagram
 
     Gemini-->>Browser: Function call: play_trick or move
     Browser->>RobotAPI: POST /tools/play_trick or /tools/move
-    RobotAPI->>ROS: Queue high-level robot operation
-    ROS->>Pupper: Switch to the walking or trick policy
-    Pupper-->>ROS: Operation status
-    ROS-->>RobotAPI: Result
+    RobotAPI->>ROS: Check the request, queue a job
+    ROS-->>RobotAPI: Result: accepted (queued) or refused, with a reason
     RobotAPI-->>Browser: JSON result
     Browser->>Gemini: Tool response
+    ROS->>Pupper: Later, when the queue gets there: switch to the walking or trick policy
+    Pupper-->>ROS: Outcome (logged; robot_status reports the state)
 ```
 
 A manual button in the debug view enters the same path at the browser-to-robot HTTP step, bypassing Gemini. This makes it useful for checking the robot connection and motion APIs independently.
@@ -124,7 +126,7 @@ The robot server is a translation and observation layer between browser-friendly
 
 ```mermaid
 flowchart TB
-    subgraph Inputs["Inputs to local_server.py"]
+    subgraph Inputs["Inputs to robot/server.py"]
         REST["REST commands<br/>movement, animation, follow, stop"]
         Poll["REST polling<br/>status and camera"]
         WSClient["Browser WebSocket<br/>/ws/detections"]
@@ -132,14 +134,14 @@ flowchart TB
 
     subgraph Server["FastAPI process on port 8000"]
         Routes["FastAPI routes"]
-        Agent["PupsterAgent<br/>validation and mapping"]
+        Agent["tools.py (tool_registry.py)<br/>checks each call, words to numbers"]
         Status["Status collectors<br/>battery, CPU, services, network"]
         Camera["Latest ROS JPEG queue"]
         Broadcast["Detection broadcaster"]
     end
 
     subgraph RobotStack["Robot processes"]
-        ToolServer["RosToolServer"]
+        ToolServer["behaviors.py + robot_api.py<br/>check now, queue a job"]
         Motion["Motion and animation queues"]
         Follow["Person-follow behavior"]
         CameraROS["ROS camera"]
@@ -223,8 +225,8 @@ The default robot URL is `http://localhost:8000`. This works when Chrome runs on
 
 ## Startup lifecycle
 
-1. The `llm-agent` service starts the FastAPI process on the robot.
-2. FastAPI's lifespan hook creates `RosToolServer` and wraps it in `PupsterAgent`.
+1. `robot/start.sh` launches the robot stack (`robot/launch/gemini_pupper.launch.py`: every leg controller loaded, none active) and then the FastAPI process (`robot/server.py`).
+2. FastAPI's lifespan hook creates the `Robot` (`robot/robot_api.py`); its queue first checks whether a clip trick is still holding a pose from before a restart.
 3. If ZMQ is available, a background subscriber connects to the local person-detection publisher.
 4. The user opens the Cloud Run URL in Chrome.
 5. The browser loads settings and connects to the robot API.
@@ -238,7 +240,7 @@ The default robot URL is `http://localhost:8000`. This works when Chrome runs on
 | Page does not load | Cloud Run, nginx, browser cache |
 | Camera or microphone unavailable | Browser permissions, HTTPS secure context, Linux audio/video devices |
 | Gemini connects and immediately closes | Model ID, API key, unsupported Live configuration; inspect close code in debug logs |
-| Voice works but robot does not move | Robot API URL, LAN access, CORS/mixed-content policy, `llm-agent` |
+| Voice works but robot does not move | Robot API URL, LAN access, CORS/mixed-content policy, the robot server (`/tmp/gemini-pupper/server.log`) |
 | Manual controls work but Gemini actions do not | Gemini function declarations and tool-call handling |
 | Robot moves but eye tracking is absent | ZMQ detector, port 5556 publisher, `/ws/detections` |
 | Debug status is empty | `/system/status`, robot service, battery script, network reachability |
@@ -246,6 +248,6 @@ The default robot URL is `http://localhost:8000`. This works when Chrome runs on
 ## Related documentation
 
 - [Project overview and setup](interactive-robot-dog.md)
-- [Robot-side server](../robot/local_server.py)
+- [Robot-side server](../robot/server.py), [the tools](../robot/tools.py), [the behaviors](../robot/behaviors.py), [the Robot API](../robot/robot_api.py)
 - [Repository README](../README.md)
 - [Pupper v3 robot stack](https://github.com/Nate711/pupperv3-monorepo)

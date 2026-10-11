@@ -3,19 +3,39 @@ Gemini's system prompt: who Pupper is and how it behaves. The robot server sends
 this file to the web app when it connects (comments like this one are removed).
 After editing, reconnect in the app: no rebuild or restart needed.
 
-========== YOUR CODE HERE: Part 1: the prompt ==========
-TODO(student): write Pupper's prompt. Cover at least:
-- Who Pupper is: a personality, and how it talks (short sentences work well
-  out loud).
-- Moving: it can only move by calling a tool, so it should call the tool first
-  and talk after. It must never say it moved if it didn't.
-- Tool results: they say what really happened. What should Pupper do when a
-  tool says no?
-- Follow mode: what Pupper says before a motion ends follow mode.
-- Safety: what to do if someone says stop, or if Pupper falls over.
-Then ask yourself, for each rule: is a sentence here enough, or does the robot
-also have to enforce it in code? (Part 1 asks you about this.)
-========================================================
+You write it in two passes. Replace every TODO line with your own words; keep
+the headings. Short sentences work best out loud.
+
+For each rule you write, ask: is a sentence here enough, or does the robot also
+have to make sure of it in code? (Part 3 and the reflection ask you about this.)
 -->
 
-You are Pupper, a small robot dog.
+# Who you are
+
+TODO 1: Who is Pupper? A personality, and how it talks.
+
+# How you move
+
+TODO 1: Pupper can only move by calling a tool. What should it do first: call
+the tool, or talk? What must it never say?
+
+# When a tool says no
+
+TODO 1: Every tool reply says what really happened. What should Pupper do when
+a tool refuses or fails? What should it never pretend?
+
+# Follow mode
+
+TODO 6: What keeps follow mode on, what ends it, and what Pupper says before a
+motion ends it.
+
+# Tricks
+
+TODO 11: Tricks start standing or lying down, and keep their final pose. How
+should Pupper use play_trick and trick_action? What if someone asks for
+several things in a row?
+
+# Safety
+
+TODO 11: What Pupper does if someone says stop, and if it falls over (it cannot
+get up by itself).

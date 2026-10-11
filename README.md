@@ -1,3 +1,7 @@
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
+
 # Gemini Pupper
 
 Talk to Pupper, and it listens, looks and does what you ask. Gemini Live is
@@ -10,22 +14,33 @@ happened. In CS 123, Lab 6 (*A Foundation Model on a Leash*), you write them.
 (Google DeepMind)**, original repo [sippeyxp/gemini-pupper](https://github.com/sippeyxp/gemini-pupper).
 This is the CS 123 version: tools in Python, trick policies, and safety checks.
 
-The robot stack, the web app and the tricks work out of the box. Your parts
-are marked `YOUR CODE HERE` / `TODO(student)`.
-
 ## What's where
+
+```
+  You speak ──► Gemini Live ──► tool call ──► tools.py       what Gemini reads; words → a robot command
+                     ▲                             │
+                     │                             ▼
+                     │                        behaviors.py   is it allowed, and what the robot does
+                     │                             │
+                     └──── the reply (a Result) ◄──┤
+                                                   ▼
+                                              robot_api.py   (provided) queue, controllers, falls, e-stop
+```
 
 | File | What it is | Yours? |
 | --- | --- | --- |
-| `robot/prompt.md` | Gemini's system prompt: who Pupper is, how it behaves | yes |
-| `robot/tools.py` | Every tool Gemini can call: what Gemini reads, and the code that runs | `move`, `turn`, `follow`, `trick_action` |
-| `robot/tool_server.py` | The robot side: a queue that runs one motion at a time, tricks, follow mode, fall recovery | `check_move`, the walking loop in `move`, `_leave_follow_mode`, `trick_action` |
-| `robot/test_tools.py` | Tests with a fake robot: `python3 robot/test_tools.py` | run them |
-| `tricks/<name>/` | One folder per trick: a trained policy and its `trick.yaml` | `sit_stay_shake`, in Step 2 |
+| `robot/prompt.md` | Gemini's system prompt: who Pupper is, how it behaves | TODO 1, 6, 11 |
+| `robot/tools.py` | Every tool Gemini can call: what Gemini reads, and a short body | TODO 4, 6, 8, 10 |
+| `robot/behaviors.py` | What the robot does: check, queue a job, report | TODO 2, 3, 5, 7, 9 |
+| `robot/test_tools.py` | Tests with a fake robot: `python3 robot/test_tools.py todo3` | run them |
+| `tricks/sit_stay_shake/` | The clip trick you train in Part 5 (`get_trick.py` makes it) | TODO 10 (its `trick.yaml`) |
+| `robot/robot_api.py` | The Robot API: the queue, the legs, falls, follow mode, the e-stop | no: read the table at the top |
+| `robot/tool_registry.py` | Turns `@tool` functions into what Gemini reads | no |
 | everything else | the web app, the robot server, the launch files | no |
 
-You never need to touch the web app (TypeScript): it asks the robot for the
-prompt and the tools when it connects.
+The TODOs are numbered 1–11 in the order of the lab handout. Each one has a
+short card in the code: what happens now, what happens later, what Gemini
+hears, what must always be true, and which test checks it.
 
 ## Setup (once, on the Pupper)
 
@@ -66,7 +81,7 @@ whatever Gemini is doing.
 | You changed | Then |
 | --- | --- |
 | `robot/prompt.md` | reconnect in the app |
-| `robot/tools.py` or `robot/tool_server.py` | `python3 robot/test_tools.py`, then `robot/stop.sh && robot/start.sh` |
+| `robot/tools.py` or `robot/behaviors.py` | `python3 robot/test_tools.py`, then `robot/stop.sh && robot/start.sh` |
 | a trick (`get_trick.py` or a `trick.yaml`) | `robot/stop.sh && robot/start.sh` |
 
 ## Tricks

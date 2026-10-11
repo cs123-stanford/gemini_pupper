@@ -29,7 +29,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import tools as gemini_tools
-from tool_server import LIMITS, ToolServer
+import behaviors
+from robot_api import LIMITS, Robot
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("server")
@@ -39,7 +40,7 @@ WEB_DIST = REPO / "dist"
 PROMPT_FILE = Path(__file__).resolve().parent / "prompt.md"
 BATTERY_SCRIPT = Path("/home/pi/pupperv3-monorepo/robot/utils/check_batt_voltage.py")
 
-tools: ToolServer | None = None
+tools: Robot | None = None
 
 
 class Detections:
@@ -74,7 +75,7 @@ detections = Detections()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global tools
-    tools = ToolServer()
+    tools = Robot()
     task = asyncio.create_task(detections.run())
     yield
     task.cancel()
@@ -90,7 +91,7 @@ app.add_middleware(
 )
 
 
-def T() -> ToolServer:
+def T() -> Robot:
     if tools is None:
         raise HTTPException(503, "tool server not ready")
     return tools
@@ -149,37 +150,37 @@ async def tool_call(name: str, args: dict = Body(default={})):
 # ------------------------------------------------------------------ commands
 @app.post("/walking/activate")
 async def walking_activate():
-    return (await T().activate_walking()).as_dict()
+    return (await behaviors.stand_up(T())).as_dict()
 
 
 @app.post("/walking/deactivate")
 async def walking_deactivate():
-    return (await T().deactivate()).as_dict()
+    return (await behaviors.lie_down(T())).as_dict()
 
 
 @app.post("/move/velocity")
 async def move_velocity(req: MoveVelocity):
     # The browser uses right/clockwise-positive; ROS uses left/counter-clockwise-positive.
-    res = await T().move(req.forward_backward_velocity, -req.right_left_velocity, -req.turning_velocity, req.duration)
+    res = await behaviors.walk(T(), req.forward_backward_velocity, -req.right_left_velocity, -req.turning_velocity, req.duration)
     return res.as_dict()
 
 
 @app.post("/move/direction")
 async def move_direction(req: MoveDirection):
-    turn = await T().move(0.0, 0.0, -90.0 if req.heading > 0 else 90.0, abs(req.heading) / 90.0) if req.heading else None
+    turn = await behaviors.walk(T(), 0.0, 0.0, -90.0 if req.heading > 0 else 90.0, abs(req.heading) / 90.0) if req.heading else None
     if turn and not turn.ok:
         return turn.as_dict()
-    return (await T().move(req.speed, 0.0, 0.0, req.duration)).as_dict()
+    return (await behaviors.walk(T(), req.speed, 0.0, 0.0, req.duration)).as_dict()
 
 
 @app.post("/animation")
 async def animation(req: Trick):
-    return (await T().trick(req.animation_name)).as_dict()
+    return (await behaviors.play_trick(T(), req.animation_name)).as_dict()
 
 
 @app.post("/trick_action")
 async def trick_action(req: TrickAction):
-    return (await T().trick_action(req.action)).as_dict()
+    return (await behaviors.trick_action(T(), req.action)).as_dict()
 
 
 @app.get("/trick_actions")
