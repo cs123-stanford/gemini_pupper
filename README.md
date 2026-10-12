@@ -8,7 +8,7 @@ Talk to Pupper, and it listens, looks and does what you ask. Gemini Live is
 the brain: a foundation model that hears you, sees through the camera and
 talks back. Trained policies are the muscles. In between are the tools: the
 only way Gemini can move the robot, and the only way it learns what really
-happened. In CS 123, Lab 6 (*A Foundation Model on a Leash*), you write them.
+happened. In CS 123, Lab 6 (*Bringing Your Pupper to Life*), you write them.
 
 **Gemini Pupper was created by [Peng Xu](https://scholar.google.com/citations?user=460NWeQAAAAJ&hl=en)
 (Google DeepMind)**, original repo [sippeyxp/gemini-pupper](https://github.com/sippeyxp/gemini-pupper).
