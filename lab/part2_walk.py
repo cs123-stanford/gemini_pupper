@@ -119,6 +119,9 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
 #   - move's words contain the number LIMITS.vx_max ("1.5") and the word "follow"
 #     (from ENDS_FOLLOW). Passes: f"... up to {LIMITS.vx_max} m/s" + ENDS_FOLLOW
 #   - the move examples below send exactly those speeds
+#   - move("right", run=True) says it walked: the reply says "walk".
+#     Passes: "Sideways never runs; walking instead. move vx=0.0 vy=-0.4 ... queued"
+#     Fails:  "move vx=0.0 vy=-0.4 ... queued" (Gemini then tells them it's running)
 #   - a move check_move refuses comes back as a failure with check_move's reason
 #   Test: python3 lab/test.py todo3  (turn is checked first, on its own)
 # ========== TODO 3: YOUR CODE HERE ==========
@@ -163,7 +166,10 @@ async def move_tool(
     # 2. Split it by direction (the robot's convention: +x forward, +y LEFT):
     #        forward: vx = +speed, vy = 0      backward: vx = -speed, vy = 0
     #        left:    vx = 0, vy = +speed      right:    vx = 0, vy = -speed
-    # 3. return await walk(robot, vx, vy, 0.0, duration)
+    # 3. If Gemini asked to run sideways, you walk instead: say so, or Gemini will
+    #    tell the person it's running. Start the reply with a note:
+    #      note = "Sideways never runs; walking instead. " (or "" otherwise)
+    #      return with_note(note, await walk(robot, vx, vy, 0.0, duration))
     # Examples: move("forward") -> vx 0.4 | move("backward", run=True) -> vx -1.2 |
     #   move("forward", run=True, speed=0.6) -> vx 1.0 | move("right", run=True) -> vy -0.4
     return not_written("TODO 3", "move in lab/part2_walk.py")

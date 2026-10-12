@@ -617,6 +617,8 @@ async def todo3() -> None:
         check('move("right", run=True) sidesteps at walking speed (vy = -0.4): sideways never runs',
               bool(ts) and all(abs(m.linear.y + 0.4) < 1e-6 for m in ts), f"result {res}; sent vy {sorted({round(m.linear.y, 2) for m in ts})}",
               passes="vy = -0.4 (fails: -1.2, running sideways)")
+        check('... and says so: the reply says "walk"', res.ok and "walk" in res.message.lower(), f"got {res}",
+              passes='"Sideways never runs; walking instead. move ... queued" (fails: just "move ... queued")')
         res = await rig.call("move", direction="forward", speed=1.5, duration=10.0)
         check("a move the robot refuses comes back as a failure with the reason",
               res.ok is False and "m" in res.message, f"got {res}",
