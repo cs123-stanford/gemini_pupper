@@ -31,6 +31,13 @@ async def leave_follow_mode(robot: Robot) -> str:
                          if the reply tells it.
     Use:                 robot.following, await robot.stop_following(),
                          robot.send_speed(0, 0, 0) (stand still)
+    Tests check:         - stand_up, lie_down and walk stop the follower right
+                           away, before the queue gets to them
+                         - their reply contains the word "follow".
+                           Passes: "Stopped following the person first. activate walking queued; ..."
+                           Fails:  "Done. activate walking queued; ..."
+                         - when not following, the reply does NOT contain "follow"
+                         - robot_status (a question) keeps following
     Test:                python3 lab/test.py todo4
     """
     # ========== TODO 4: YOUR CODE HERE ==========
@@ -47,6 +54,12 @@ async def leave_follow_mode(robot: Robot) -> str:
 # TODO 5: describe follow for Gemini, and write its body: robot.set_following(enabled)
 # (provided) starts or stops the person follower. Gemini should know what keeps
 # follow mode on and what ends it (your rule in TODO 4).
+#   Tests check:
+#   - follow's description is 20+ characters, enabled is described, and the
+#     description says what ends it: it contains "end" or "stop".
+#     Passes: "... any motion tool (walk, turn, ...) ends it."  Fails: "Follow the person."
+#   - prompt.md's Follow mode section contains "end" or "stop"
+#   - follow(enabled=True) starts the follower, follow(enabled=False) stops it
 #   Test: python3 lab/test.py todo5
 # ========== TODO 5: YOUR CODE HERE ==========
 @tool(

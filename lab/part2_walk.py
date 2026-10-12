@@ -28,7 +28,9 @@ def check_move(vx: float, vy: float, wz_deg: float, duration: float, limits: Mov
     vx forward m/s, vy left m/s, wz_deg counter-clockwise deg/s, duration in s.
 
     TODO 2 (Part 2) ------------------------------------------------------------
-    Gemini reads:        the string you return: say what was wrong, and the limit.
+    Gemini reads:        the string you return, word for word, as the tool's
+                         reply. "too fast" leaves Gemini guessing; "too fast:
+                         |vx|<=1.5 m/s" lets it retry at a speed that works.
     Must always be true: refuse anything too fast, too slow to move at all, a
                          duration that isn't more than 0 and at most
                          duration_max, and a move that would travel farther
@@ -36,6 +38,13 @@ def check_move(vx: float, vy: float, wz_deg: float, duration: float, limits: Mov
                          (robot/robot_api.py).
     Why here:            the tool descriptions ask Gemini to stay within the
                          limits; this makes sure of it.
+    Tests check:         - good moves (even exactly at a limit) -> None
+                         - each bad move -> a non-empty reason
+                         - the reason contains the limit's number, as Python
+                           prints it: vx_max "1.5", vy_max "0.5", wz_max
+                           "114.0", duration_max "10.0", distance_max "5.0".
+                           Passes: f"... at most {limits.duration_max} s"
+                           Fails:  "too long", or "{limits.duration_max:.0f}" ("10")
     Test:                python3 lab/test.py todo2
     """
     # ========== TODO 2: YOUR CODE HERE ==========
@@ -104,6 +113,13 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
 #   - move is the real challenge: four parameters, defaults, and the "run" rule.
 #   - Put the robot's real limits in the words: LIMITS.vx_max and the others
 #     (robot/robot_api.py), RUN_MIN_SPEED, and the defaults. Add ENDS_FOLLOW.
+#   Tests check:
+#   - each tool's description is 20+ characters, and every parameter is described
+#   - turn left sends +wz, right -wz, about the angle asked for, with vx = vy = 0
+#   - move's words contain the number LIMITS.vx_max ("1.5") and the word "follow"
+#     (from ENDS_FOLLOW). Passes: f"... up to {LIMITS.vx_max} m/s" + ENDS_FOLLOW
+#   - the move examples below send exactly those speeds
+#   - a move check_move refuses comes back as a failure with check_move's reason
 #   Test: python3 lab/test.py todo3  (turn is checked first, on its own)
 # ========== TODO 3: YOUR CODE HERE ==========
 @tool(

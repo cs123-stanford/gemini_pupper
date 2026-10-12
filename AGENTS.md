@@ -23,8 +23,10 @@ from W&B with `robot/get_trick.py`.
 
 The student TODOs are numbered 1-10 in the order of the lab handout, each with
 a card in the code (now / later / what Gemini hears / must always be true /
-test). Work on one TODO at a time, and run its test group:
-`python3 lab/test.py todo3`.
+tests check / test). "Tests check" lists every check of that TODO, with a reply
+or description that passes and one that fails; the handout has the same as a
+table. A failing check prints what it got and an example that passes. Work on
+one TODO at a time, and run its test group: `python3 lab/test.py todo3`.
 
 | Student work (`TODO n: YOUR CODE HERE`, all in `lab/`) | Provided (don't rewrite) |
 | --- | --- |
@@ -80,7 +82,10 @@ patch infrastructure to make a symptom go away.
 ## Conventions
 
 - Every tool returns a Result (`{success, message}`), and Gemini reads the
-  message. Say what happened, or what was wrong and what would work instead.
+  message word for word: it is all Gemini learns. Say what happened, or what
+  was wrong *and* the limit or the real choices (the tests check for these:
+  "too fast: |vx|<=1.5 m/s", "unknown trick 'x'; available: [...]"). A bare
+  "too fast" leaves Gemini guessing.
 - Rules are enforced on the robot, not only in the prompt: the prompt and the
   tool descriptions tell Gemini what to do; the code makes sure it happens.
 - Motion goes through the queue (`robot.queue`): check now, queue a job, and

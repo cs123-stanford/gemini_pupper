@@ -8,6 +8,18 @@ the headings. Short sentences work best out loud.
 
 For each rule you write, ask: is a sentence here enough, or does the robot also
 have to make sure of it in code? (Part 3 and the reflection ask you about this.)
+
+What the tests check (they can only look for words; you check the behavior
+by talking to Pupper). A section still counts as unwritten while it says TODO.
+- TODO 1: the first three sections have 60+ words together, and say "tool".
+    Passes: "You can only move by calling a tool."
+- TODO 5: Follow mode says "end" or "stop".
+    Passes: "Any motion ends follow mode. Before you call that tool, say so."
+- TODO 10: Tricks and Safety say "stop", "fall" (or "fell"), and "order"
+  (or "row", "sequence").
+    Passes: "If someone says stop, call stop right away."
+            "If you fall over, ask a person to set you upright."
+            "If the person asks for several things in a row, call the tools in that order."
 -->
 
 # Who you are

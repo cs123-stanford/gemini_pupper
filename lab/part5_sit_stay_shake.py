@@ -36,6 +36,20 @@ async def trick_action(robot: Robot, action: str) -> Result:
                          will); a fall or a stop can still happen in between.
     Use:                 robot.action_ids, robot.holding_after_queue,
                          robot.is_active, robot.play_clip, robot.switch_to
+    Tests check:         - an unknown action fails, and the message lists the real ones.
+                           Passes: "unknown trick action fetch_the_ball; available: ['wave_left', ...]"
+                         - an action while its trick isn't (going to be) holding fails
+                           right away, names the trick, and queues nothing.
+                           Passes: "wave_left only works while hold_pose is running;
+                                    play it first (play_trick hold_pose)"
+                           Fails:  "not sitting" (Gemini can't tell which trick to play)
+                         - while holding: the clip plays and the trick keeps holding
+                         - the exit clip: walking takes the legs back, holding_now is
+                           None, and later actions are refused (then_holding=None)
+                         - "sit, then shake" queued back to back plays both
+                           (the now-check must use holding_after_queue)
+                         - if the trick was relaxed before the queue got there, the
+                           job refuses (the later check: robot.is_active)
     Test:                python3 lab/test.py todo8
     """
     # ========== TODO 8: YOUR CODE HERE ==========
@@ -64,6 +78,13 @@ async def trick_action(robot: Robot, action: str) -> Result:
 # actions, each with its trick and its description from trick.yaml. Say what has
 # to happen first, and what ends it. (Also TODO 9: the words in
 # tricks/sit_stay_shake/trick.yaml, once you have fetched your policy.)
+#   Tests check:
+#   - the description is 20+ characters, and action is described
+#   - it contains {actions} (each action's description appears in it)
+#   - action keeps enum=ACTION_IDS, and the tool plays the clip
+#   - trick.yaml (once fetched): no TODO left, description 20+ characters, and
+#     every action described in 10+ characters.
+#     Passes: shake_left: "Shakes the left paw, then keeps sitting."  Fails: shake_left: "left"
 #   Test: python3 lab/test.py todo9
 # ========== TODO 9: YOUR CODE HERE ==========
 @tool(

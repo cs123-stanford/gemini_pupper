@@ -33,6 +33,17 @@ async def play_trick(robot: Robot, name: str) -> Result:
                          then_holding=...) with the note in front.
                          then_holding is the trick if it is a clip trick (it has
                          trick.clips: it will hold a pose), else None.
+    Tests check:         - an unknown name fails, and the message lists the real names.
+                           Passes: "unknown trick 'backflip'; available: ['bow', ...]"
+                           Fails:  "unknown trick"
+                         - a real trick is accepted right away ("trick bow queued; ...")
+                         - the queued job is play_policy_trick: the trick's
+                           controller takes the legs for trick.total_time, and the
+                           job's outcomes ("back on the walking policy", "holds the
+                           final pose", "already doing ...") come from it
+                         - a clip trick passes then_holding=trick (else asking for it
+                           again while it holds its pose replays it)
+                         - with follow mode on, the reply contains "follow" (the note)
     Test:                python3 lab/test.py todo6
 
     Optional, after the lab: the jump. Pupper's default walking policy can
@@ -111,6 +122,12 @@ async def play_policy_trick(robot: Robot, trick: Trick) -> Result:
 # list of installed tricks (each with its description from its trick.yaml).
 # Gemini needs to know that each trick says whether it starts standing or lying
 # down, and that the robot keeps a trick's final pose until the next motion.
+#   Tests check:
+#   - the description is 20+ characters, and name is described
+#   - it contains {tricks} (every trick's own description appears in it).
+#     Fails: listing the tricks by hand (it goes stale when a trick is added)
+#   - name keeps enum=TRICK_NAMES
+#   - it contains the word "pose": "A trick keeps its final pose until the next motion."
 #   Test: python3 lab/test.py todo7
 # ========== TODO 7: YOUR CODE HERE ==========
 @tool(
