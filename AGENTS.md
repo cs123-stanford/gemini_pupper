@@ -72,8 +72,8 @@ patch infrastructure to make a symptom go away.
   They check what the tools do, not how they are written.
 - `python3 lab/chat.py`: talk to Gemini in text with the student's own prompt
   and tools, on the fake robot (nothing moves). It shows each tool call, the
-  reply Gemini hears, and what the fake robot did. `--toy` is Peng's one-tool
-  demo. Never `--robot` without the student's OK (see the safety rules).
+  reply Gemini hears, and what the fake robot did. Never `--robot` without
+  the student's OK (see the safety rules).
 - In pupper-mjlab: `uv run python -m mjlab.tasks.tracking.config.pupper.tricks.sit_stay_shake`
   checks `cut`, `hold` and `mirror` and builds the library;
   `uv run python -m mjlab.tasks.tracking.config.pupper.play_motion <motion>.npz`

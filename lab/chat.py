@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Talk to Gemini in text, and watch every tool call it makes.
 
-    python3 lab/chat.py --toy      # Peng Xu's one-tool demo: nothing moves
     python3 lab/chat.py            # your prompt and tools, on a fake robot: nothing moves
     python3 lab/chat.py --robot    # your tools on the real Pupper: it moves!
 

@@ -5,13 +5,9 @@ Gemini Live in about a hundred lines: no browser, no microphone. You type, Gemin
 answers and calls tools, and this script runs each call and sends the reply
 back, the same loop the web app runs when you talk to Pupper.
 
-    python3 lab/chat.py --toy      # one toy tool that only prints (a laptop is enough)
     python3 lab/chat.py            # YOUR tools, on a fake robot (a laptop is enough)
     python3 lab/chat.py --robot    # your tools on the real Pupper (it moves!)
 
---toy      Peng Xu's original demo: one made-up tool, move_robot, that prints
-           what it would do. Change its description or its reply (TOY_TOOL and
-           move_robot below) and watch what Gemini does differently.
 (default)  Your lab/prompt.md, and your tools from lab/, exactly as the web app
            gets them, run on the fake robot from robot/test_tools.py. Time is fake, so
            a queued job finishes at once: you see the reply Gemini hears
@@ -43,46 +39,6 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 KEY_FILE = Path.home() / ".config" / "gemini-pupper" / "api_key"
 MODEL = "gemini-3.1-flash-live-preview"  # the web app's default (constants.ts)
-
-
-# ============================================================ --toy: Peng's demo
-# This dictionary is everything Gemini knows about the tool: its name, what it
-# is for, and its parameters. Gemini never sees the Python function below.
-TOY_TOOL = {
-    "name": "move_robot",
-    "description": "Controls robot base movement.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "direction": {"type": "STRING", "description": "Movement direction ('forward', 'backward', 'left', 'right')."},
-            "distance": {"type": "NUMBER", "description": "Distance in meters or steps to move."},
-        },
-        "required": ["direction"],
-    },
-}
-TOY_PROMPT = (
-    "You are a robot assistant. When asked to move, call move_robot with direction "
-    "('forward', 'backward', 'left', 'right') and distance. Then briefly report what you did."
-)
-
-
-def move_robot(direction: str, distance: float = 1.0) -> dict:
-    """What runs when Gemini calls move_robot. Whatever this returns is all Gemini
-    learns about what happened. Try returning a failure instead."""
-    print(f"     [toy robot] moving {direction} by {distance} units...")
-    return {"status": "success", "executed_move": direction, "distance": distance}
-
-
-class ToyBackend:
-    name = "the toy tool (nothing moves)"
-
-    def setup(self) -> tuple[str, list[dict]]:
-        return TOY_PROMPT, [TOY_TOOL]
-
-    async def call(self, name: str, args: dict) -> dict:
-        if name != "move_robot":
-            return {"status": "failure", "reason": f"there is no tool called {name}"}
-        return move_robot(**args)
 
 
 # ============================================================ your tools, on the fake robot
@@ -248,14 +204,13 @@ async def chat(backend, model: str, full: bool) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = ap.add_mutually_exclusive_group()
-    mode.add_argument("--toy", action="store_true", help="Peng's demo: one toy tool that only prints")
     mode.add_argument("--robot", nargs="?", const="http://localhost:8000", metavar="URL",
                       help="your tools on the real robot server (default http://localhost:8000)")
     ap.add_argument("--show", action="store_true", help="print the whole prompt and every tool declaration first")
     ap.add_argument("--model", default=MODEL, help=f"Gemini Live model (default {MODEL})")
     args = ap.parse_args()
     sys.path.insert(0, str(HERE))
-    backend = ToyBackend() if args.toy else RobotBackend(args.robot) if args.robot else DeskBackend()
+    backend = RobotBackend(args.robot) if args.robot else DeskBackend()
     try:
         asyncio.run(chat(backend, args.model, args.show))
     except (KeyboardInterrupt, EOFError):

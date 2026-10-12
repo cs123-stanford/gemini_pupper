@@ -90,7 +90,6 @@ call and every reply. It needs `python3 -m pip install --user google-genai pyyam
 `~/.config/gemini-pupper/api_key`.
 
 ```bash
-python3 lab/chat.py --toy      # one toy tool that only prints: see how the loop works
 python3 lab/chat.py            # your prompt and tools, on a fake robot: nothing moves
 python3 lab/chat.py --robot    # your tools on the real Pupper (through the robot server): it moves!
 ```
