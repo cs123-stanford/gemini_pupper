@@ -21,12 +21,12 @@ You only work in `lab/`. Everything else is provided.
 ```
 gemini_pupper/
 ├── lab/                         ← you work here
-│   ├── prompt.md                who Pupper is and how it behaves        TODO 1, 5, 10
+│   ├── prompt.md                who Pupper is and how it behaves        TODO 1, 6, 11
 │   ├── basics.py                read first: finished examples, nothing to write
-│   ├── part2_walk.py            check_move, then the turn and move tools  TODO 2, 3
-│   ├── part3_follow.py          the follow rule, then the follow tool     TODO 4, 5
-│   ├── part4_tricks.py          play_trick, then its words                TODO 6, 7
-│   ├── part5_sit_stay_shake.py  trick_action, then its words              TODO 8, 9
+│   ├── part2_walk.py            check_move, the turn and move tools, arc  TODO 2, 3, 4
+│   ├── part3_follow.py          the follow rule, then the follow tool     TODO 5, 6
+│   ├── part4_tricks.py          play_trick, then its words                TODO 7, 8
+│   ├── part5_sit_stay_shake.py  trick_action, then its words              TODO 9, 10
 │   ├── test.py                  python3 lab/test.py todo3   (tests with a fake robot)
 │   └── chat.py                  python3 lab/chat.py         (talk to Gemini in text)
 ├── tricks/                      one folder per trick; sit_stay_shake lands here in Part 5
@@ -38,7 +38,7 @@ gemini_pupper/
 Every file in `lab/` has the same two halves, in order. First **what the robot
 does** (a behavior: is it allowed, do it, report what happened), then **what
 Gemini reads** (an `@tool` with the tool's name, its description, and a short
-body). The TODOs are numbered 1–10 in the order of the lab handout. Each one
+body). The TODOs are numbered 1–11 in the order of the lab handout. Each one
 has a short card in the code: what happens now, what happens later, what Gemini
 hears, what must always be true, and which test checks it. The finished
 functions (`stand_up`, `walk`, `play_policy_trick`, …) are there to read: the

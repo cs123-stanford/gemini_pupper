@@ -1,4 +1,4 @@
-"""Part 5: Sit, Stay, Shake. TODO 8 (trick_action), then TODO 9 (what Gemini reads about it).
+"""Part 5: Sit, Stay, Shake. TODO 9 (trick_action), then TODO 10 (what Gemini reads about it).
 
 A clip trick (part4_tricks.py explains them) holds a pose and takes requests:
 the shakes and the stand-up of sit_stay_shake are its *actions*, and they only
@@ -17,7 +17,7 @@ from tool_registry import ACTION_IDS, Param, tool
 async def trick_action(robot: Robot, action: str) -> Result:
     """Play one of a clip trick's actions (e.g. shake a paw while sitting).
 
-    TODO 8 (Part 5) ------------------------------------------------------------
+    TODO 9 (Part 5) ------------------------------------------------------------
     Now:                 robot.action_ids() maps each action to (trick, clip). An
                          unknown action fails, listing the real ones. An action
                          only works while its trick holds its pose: refuse unless
@@ -50,9 +50,9 @@ async def trick_action(robot: Robot, action: str) -> Result:
                            (the now-check must use holding_after_queue)
                          - if the trick was relaxed before the queue got there, the
                            job refuses (the later check: robot.is_active)
-    Test:                python3 lab/test.py todo8
+    Test:                python3 lab/test.py todo9
     """
-    # ========== TODO 8: YOUR CODE HERE ==========
+    # ========== TODO 9: YOUR CODE HERE ==========
     # NOW:
     # 1. found = robot.action_ids().get(action). If None: fail, listing list(robot.action_ids()).
     # 2. trick, clip = found
@@ -68,15 +68,15 @@ async def trick_action(robot: Robot, action: str) -> Result:
     # QUEUE IT:
     # 5. return await robot.queue(f"{trick.name} {clip}", job, trick.clip_time_estimate(clip),
     #                              then_holding=...)   None after the exit clip, else trick.
-    return not_written("TODO 8", "trick_action in lab/part5_sit_stay_shake.py")
+    return not_written("TODO 9", "trick_action in lab/part5_sit_stay_shake.py")
     # ====================================
 
 
 # ============================================================ what Gemini reads
-# TODO 9: describe trick_action for Gemini, and write its body (it calls
+# TODO 10: describe trick_action for Gemini, and write its body (it calls
 # trick_action above). {actions} in a description becomes the list of installed
 # actions, each with its trick and its description from trick.yaml. Say what has
-# to happen first, and what ends it. (Also TODO 9: the words in
+# to happen first, and what ends it. (Also TODO 10: the words in
 # tricks/sit_stay_shake/trick.yaml, once you have fetched your policy.)
 #   Tests check:
 #   - the description is 20+ characters, and action is described
@@ -85,14 +85,14 @@ async def trick_action(robot: Robot, action: str) -> Result:
 #   - trick.yaml (once fetched): no TODO left, description 20+ characters, and
 #     every action described in 10+ characters.
 #     Passes: shake_left: "Shakes the left paw, then keeps sitting."  Fails: shake_left: "left"
-#   Test: python3 lab/test.py todo9
-# ========== TODO 9: YOUR CODE HERE ==========
+#   Test: python3 lab/test.py todo10
+# ========== TODO 10: YOUR CODE HERE ==========
 @tool(
     "trick_action",
-    "TODO 9: describe trick_action for Gemini. Actions:\n{actions}",
-    action=Param("string", "TODO 9", enum=ACTION_IDS),
+    "TODO 10: describe trick_action for Gemini. Actions:\n{actions}",
+    action=Param("string", "TODO 10", enum=ACTION_IDS),
 )
 async def trick_action_tool(robot: Robot, action: str) -> Result:
-    # One line: call trick_action(robot, action) (your TODO 8), await it, and return it.
-    return not_written("TODO 9", "trick_action in lab/part5_sit_stay_shake.py")
-# ====================================
+    # One line: call trick_action(robot, action) (your TODO 9), await it, and return it.
+    return not_written("TODO 10", "trick_action in lab/part5_sit_stay_shake.py")
+# =====================================

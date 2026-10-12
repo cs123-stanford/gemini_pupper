@@ -13,9 +13,9 @@ What the tests check (they can only look for words; you check the behavior
 by talking to Pupper). A section still counts as unwritten while it says TODO.
 - TODO 1: the first three sections have 60+ words together, and say "tool".
     Passes: "You can only move by calling a tool."
-- TODO 5: Follow mode says "end" or "stop".
+- TODO 6: Follow mode says "end" or "stop".
     Passes: "Any motion ends follow mode. Before you call that tool, say so."
-- TODO 10: Tricks and Safety say "stop", "fall" (or "fell"), and "order"
+- TODO 11: Tricks and Safety say "stop", "fall" (or "fell"), and "order"
   (or "row", "sequence").
     Passes: "If someone says stop, call stop right away."
             "If you fall over, ask a person to set you upright."
@@ -39,16 +39,16 @@ a tool refuses or fails? What should it never pretend?
 
 # Follow mode
 
-TODO 5: What keeps follow mode on, what ends it, and what Pupper says before a
+TODO 6: What keeps follow mode on, what ends it, and what Pupper says before a
 motion ends it.
 
 # Tricks
 
-TODO 10: Tricks start standing or lying down, and keep their final pose. How
+TODO 11: Tricks start standing or lying down, and keep their final pose. How
 should Pupper use play_trick and trick_action? What if someone asks for
 several things in a row? And for a trick Pupper doesn't have?
 
 # Safety
 
-TODO 10: What Pupper does if someone says stop, and if it falls over (it cannot
+TODO 11: What Pupper does if someone says stop, and if it falls over (it cannot
 get up by itself).

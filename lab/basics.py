@@ -47,7 +47,7 @@ ENDS_FOLLOW = (
 # ============================================================ what the robot does
 async def stand_up(robot: Robot) -> Result:
     """Stand up on the walking policy (also: stand up after a trick)."""
-    note = await leave_follow_mode(robot)  # (1) now: any motion ends follow mode (TODO 4)
+    note = await leave_follow_mode(robot)  # (1) now: any motion ends follow mode (TODO 5)
 
     async def job() -> Result:  # (2) later: give the legs to the walking policy
         return await robot.switch_to(WALKING_CONTROLLER)

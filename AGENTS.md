@@ -21,7 +21,7 @@ calls. `robot/robot_api.py` (provided) runs the jobs one at a time and drives
 the ROS 2 controllers. Trick policies are trained in pupper-mjlab and fetched
 from W&B with `robot/get_trick.py`.
 
-The student TODOs are numbered 1-10 in the order of the lab handout, each with
+The student TODOs are numbered 1-11 in the order of the lab handout, each with
 a card in the code (now / later / what Gemini hears / must always be true /
 tests check / test). "Tests check" lists every check of that TODO, with a reply
 or description that passes and one that fails; the handout has the same as a
@@ -30,11 +30,11 @@ one TODO at a time, and run its test group: `python3 lab/test.py todo3`.
 
 | Student work (`TODO n: YOUR CODE HERE`, all in `lab/`) | Provided (don't rewrite) |
 | --- | --- |
-| `prompt.md`: TODO 1, 5 (its Follow mode section), 10 | `lab/basics.py`, and the finished functions in the part files (`walk`, `play_policy_trick`): students read and explain them, they don't write them |
-| `part2_walk.py`: TODO 2 (`check_move`), 3 (the `turn` and `move` tools) | `robot/`: the Robot API (`robot_api.py`), the tool registry, the robot server, the tests, the chat, the launch files and scripts |
-| `part3_follow.py`: TODO 4 (`leave_follow_mode`), 5 (the `follow` tool) | `web/`: the web app (TypeScript); students don't need to touch it |
-| `part4_tricks.py`: TODO 6 (`play_trick`), 7 (its words) | `robot/tricks.py`, `robot/get_trick.py` |
-| `part5_sit_stay_shake.py`: TODO 8 (`trick_action`), 9 (its words, and `tricks/sit_stay_shake/trick.yaml`) | |
+| `prompt.md`: TODO 1, 6 (its Follow mode section), 11 | `lab/basics.py`, and the finished functions in the part files (`walk`, `play_policy_trick`): students read and explain them, they don't write them |
+| `part2_walk.py`: TODO 2 (`check_move`), 3 (the `turn` and `move` tools), 4 (the `arc` tool) | `robot/`: the Robot API (`robot_api.py`), the tool registry, the robot server, the tests, the chat, the launch files and scripts |
+| `part3_follow.py`: TODO 5 (`leave_follow_mode`), 6 (the `follow` tool) | `web/`: the web app (TypeScript); students don't need to touch it |
+| `part4_tricks.py`: TODO 7 (`play_trick`), 8 (its words) | `robot/tricks.py`, `robot/get_trick.py` |
+| `part5_sit_stay_shake.py`: TODO 9 (`trick_action`), 10 (its words, and `tricks/sit_stay_shake/trick.yaml`) | |
 | In pupper-mjlab: the Sit_Stay_Shake notebook (or `tricks/sit_stay_shake.py`): `cut`, `hold`, `mirror`, the clips and `ORDER` | The rest of pupper-mjlab |
 
 If a provided file looks wrong, tell the student and let them ask a TA; don't
@@ -67,7 +67,7 @@ patch infrastructure to make a symptom go away.
 
 ## How to check work without the robot
 
-- `python3 lab/test.py` (or `todo1` ... `todo10`, `part1` ... `part6`,
+- `python3 lab/test.py` (or `todo1` ... `todo11`, `part1` ... `part6`,
   `robot`): tests with a fake robot. Run them after every change in `lab/`.
   They check what the tools do, not how they are written.
 - `python3 lab/chat.py`: talk to Gemini in text with the student's own prompt

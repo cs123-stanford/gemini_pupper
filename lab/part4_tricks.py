@@ -1,4 +1,4 @@
-"""Part 4: Tricks. TODO 6 (play_trick), then TODO 7 (what Gemini reads about it).
+"""Part 4: Tricks. TODO 7 (play_trick), then TODO 8 (what Gemini reads about it).
 
 Read it top to bottom: play_trick (yours) checks the request and queues the
 job; play_policy_trick (finished: read it) is that job; the play_trick tool
@@ -25,7 +25,7 @@ async def play_trick(robot: Robot, name: str) -> Result:
     """Play a trick from <repo>/tricks. Every trick in the lab is a policy trick:
     it plays its own controller (the job is play_policy_trick below).
 
-    TODO 6 (Part 4) ------------------------------------------------------------
+    TODO 7 (Part 4) ------------------------------------------------------------
     Now:                 an unknown name fails with f"unknown trick '{name}';
                          available: {list(robot.tricks)}"; leave follow mode.
     Later (the job):     play_policy_trick(robot, trick), below: read it.
@@ -44,7 +44,7 @@ async def play_trick(robot: Robot, name: str) -> Result:
                          - a clip trick passes then_holding=trick (else asking for it
                            again while it holds its pose replays it)
                          - with follow mode on, the reply contains "follow" (the note)
-    Test:                python3 lab/test.py todo6
+    Test:                python3 lab/test.py todo7
 
     Optional, after the lab: the jump. Pupper's default walking policy can
     already jump (you have seen it on the gamepad). Give Gemini that jump:
@@ -52,7 +52,7 @@ async def play_trick(robot: Robot, name: str) -> Result:
     trick.kind == "reference" play with robot.play_reference_trick(trick)
     instead. Test: python3 lab/test.py optional_jump
     """
-    # ========== TODO 6: YOUR CODE HERE ==========
+    # ========== TODO 7: YOUR CODE HERE ==========
     # NOW:
     # 1. trick = robot.tricks.get(name). If it is None, fail, and list the real names: list(robot.tricks).
     # 2. note = await leave_follow_mode(robot)
@@ -62,14 +62,14 @@ async def play_trick(robot: Robot, name: str) -> Result:
     # QUEUE IT:
     # 4. Decide then_holding: will this trick hold a pose when it's done? (Read the card above.)
     # 5. return with_note(note, await robot.queue(f"trick {name}", job, trick.total_time, then_holding=...))
-    return not_written("TODO 6", "play_trick in lab/part4_tricks.py")
+    return not_written("TODO 7", "play_trick in lab/part4_tricks.py")
     # ====================================
 
 
 async def play_policy_trick(robot: Robot, trick: Trick) -> Result:
     """The job that plays a policy trick (finished: read it).
 
-    Your play_trick (TODO 6) queues this; it runs when the queue gets to the
+    Your play_trick (TODO 7) queues this; it runs when the queue gets to the
     trick. It gives the legs to the trick's controller, waits while the trick
     plays, then leaves the robot in the right pose, and says which: Gemini (and
     robot_status) can only plan the next move if it knows. The four steps:
@@ -118,7 +118,7 @@ async def play_policy_trick(robot: Robot, trick: Trick) -> Result:
 
 
 # ============================================================ what Gemini reads
-# TODO 7: describe play_trick for Gemini. {tricks} in a description becomes the
+# TODO 8: describe play_trick for Gemini. {tricks} in a description becomes the
 # list of installed tricks (each with its description from its trick.yaml).
 # Gemini needs to know that each trick says whether it starts standing or lying
 # down, and that the robot keeps a trick's final pose until the next motion.
@@ -128,12 +128,12 @@ async def play_policy_trick(robot: Robot, trick: Trick) -> Result:
 #     Fails: listing the tricks by hand (it goes stale when a trick is added)
 #   - name keeps enum=TRICK_NAMES
 #   - it contains the word "pose": "A trick keeps its final pose until the next motion."
-#   Test: python3 lab/test.py todo7
-# ========== TODO 7: YOUR CODE HERE ==========
+#   Test: python3 lab/test.py todo8
+# ========== TODO 8: YOUR CODE HERE ==========
 @tool(
     "play_trick",
-    "TODO 7: describe play_trick for Gemini." + ENDS_FOLLOW + "\nTricks:\n{tricks}",
-    name=Param("string", "TODO 7", enum=TRICK_NAMES),
+    "TODO 8: describe play_trick for Gemini." + ENDS_FOLLOW + "\nTricks:\n{tricks}",
+    name=Param("string", "TODO 8", enum=TRICK_NAMES),
 )
 # ====================================
 async def play_trick_tool(robot: Robot, name: str) -> Result:

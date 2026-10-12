@@ -1,13 +1,15 @@
-"""Part 2: Walk. TODO 2 (check_move), then TODO 3 (the turn and move tools).
+"""Part 2: Walk. TODO 2 (check_move), TODO 3 (the turn and move tools), then TODO 4 (arc).
 
 Read it top to bottom: check_move (yours) decides whether a move is allowed;
-walk (finished: read it) does a move on the robot; turn and move (yours) are
-what Gemini calls, and they call walk.
+walk (finished: read it) does a move on the robot; turn, move and arc (yours)
+are what Gemini calls, and they call walk.
 
     "walk forward" -> move (TODO 3) -> walk -> check_move (TODO 2) -> the job, later
 """
 
 from __future__ import annotations
+
+import math
 
 from basics import ENDS_FOLLOW
 from part3_follow import leave_follow_mode
@@ -81,7 +83,7 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
     refused = check_move(vx, vy, wz_deg, duration)  # your TODO 2: is this move allowed?
     if refused:
         return Result(False, refused)  # Gemini hears why; nothing is queued
-    note = await leave_follow_mode(robot)  # your TODO 4: any motion ends follow mode
+    note = await leave_follow_mode(robot)  # your TODO 5: any motion ends follow mode
     if robot.fallen:  # (1)
         return Result(False, FELL_MESSAGE)
 
@@ -99,10 +101,11 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
             robot.send_speed(vx, vy, wz_deg)
             await robot.sleep(1.0 / LLM_CMD_RATE)  # never time.sleep: it would freeze the server
         robot.send_speed(0, 0, 0)  # stand still
-        return Result(True, f"moved vx={vx} vy={vy} wz={wz_deg} for {duration} s")  # the outcome (debug log)
+        return Result(True, f"moved {what} for {duration:.2f} s")  # the outcome (debug log)
 
     # What Gemini hears NOW: the job was accepted.
-    return with_note(note, await robot.queue(f"move vx={vx} vy={vy} wz={wz_deg} {duration}s", job, duration))
+    what = f"vx={vx:g} vy={vy:g} wz={wz_deg:.3g}"  # 45.836623610465864 -> 45.8: Gemini reads this
+    return with_note(note, await robot.queue(f"move {what} {duration:.3g}s", job, duration))
 
 
 # ============================================================ what Gemini reads
@@ -120,8 +123,8 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
 #     (from ENDS_FOLLOW). Passes: f"... up to {LIMITS.vx_max} m/s" + ENDS_FOLLOW
 #   - the move examples below send exactly those speeds
 #   - move("right", run=True) says it walked: the reply says "walk".
-#     Passes: "Sideways never runs; walking instead. move vx=0.0 vy=-0.4 ... queued"
-#     Fails:  "move vx=0.0 vy=-0.4 ... queued" (Gemini then tells them it's running)
+#     Passes: "Sideways never runs; walking instead. move vx=0 vy=-0.4 ... queued"
+#     Fails:  "move vx=0 vy=-0.4 ... queued" (Gemini then tells them it's running)
 #   - a move check_move refuses comes back as a failure with check_move's reason
 #   Test: python3 lab/test.py todo3  (turn is checked first, on its own)
 # ========== TODO 3: YOUR CODE HERE ==========
@@ -173,4 +176,61 @@ async def move_tool(
     # Examples: move("forward") -> vx 0.4 | move("backward", run=True) -> vx -1.2 |
     #   move("forward", run=True, speed=0.6) -> vx 1.0 | move("right", run=True) -> vy -0.4
     return not_written("TODO 3", "move in lab/part2_walk.py")
+# ====================================
+
+
+# TODO 4: the arc tool: walk forward and turn at the same time, along part of a
+# circle. turn sends only a turning speed and move only a straight one, so
+# "go in a circle" was move, stop, turn, move. walk takes vx and wz_deg together,
+# and the locomotion policy can do both at once: arc is how Gemini asks for it.
+#   Now:                 work out vx and wz_deg from the radius and the speed, then
+#                        walk (walk checks the move with check_move and queues it).
+#   Gemini reads:        the words, to pick a radius the robot can do; then the
+#                        reply: walk's, or why there is no arc (a radius or speed
+#                        of 0 or less), or check_move's reason (too tight, too far).
+#   Must always be true: an arc the robot can't do never moves it and never crashes.
+#   The math: around a circle of radius r (m) at speed v (m/s),
+#     wz_deg = math.degrees(v / r)   (+ to the left, - to the right)
+#     seconds = abs(angle) / abs(wz_deg)
+#     e.g. 90 deg at 0.4 m/s around r = 0.5 m: wz = 45.8 deg/s for 1.96 s (0.79 m)
+#   Put the real limits in the words: the robot turns at most LIMITS.wz_max deg/s,
+#   so at speed v the radius must be at least v / math.radians(LIMITS.wz_max); one
+#   arc goes at most LIMITS.distance_max m. Add ENDS_FOLLOW.
+#   Tests check:
+#   - arc's description is 20+ characters, and every parameter is described
+#   - its words contain LIMITS.distance_max ("5.0") and "follow" (from ENDS_FOLLOW).
+#     Passes: f"... One arc goes at most {LIMITS.distance_max} m." + ENDS_FOLLOW
+#     Fails:  "Walk in a curve." (Gemini then asks for circles the robot refuses)
+#   - arc("left", angle=90, radius=0.5) sends vx = +0.4, vy = 0 and wz = +45.8 deg/s,
+#     and turns about 90 deg; arc("right", ...) sends a negative wz, still forward
+#   - arc("left", speed=0.6, radius=1.0) sends vx = 0.6 and wz = +34.4 deg/s
+#   - arc("left", radius=0) is a failure that says "radius", and sends nothing.
+#     Passes: "radius must be more than 0 m"   Fails: a crash (division by zero)
+#   - arc("left", radius=0.1) is too tight (229 deg/s): a failure with check_move's
+#     reason ("114.0").  Fails: a success that quietly turned slower
+#   Test: python3 lab/test.py todo4
+# ========== TODO 4: YOUR CODE HERE ==========
+@tool(
+    "arc",
+    "TODO 4: describe the arc tool for Gemini.",
+    direction=Param("string", "TODO 4", enum=["left", "right"]),
+    angle=Param("number", "TODO 4", required=False),
+    radius=Param("number", "TODO 4", required=False),
+    speed=Param("number", "TODO 4", required=False),
+)
+async def arc_tool(
+    robot: Robot,
+    direction: str,
+    angle: float = 90.0,
+    radius: float = 0.5,
+    speed: float = 0.4,
+) -> Result:
+    # 1. No circle to follow: if radius <= 0 or speed <= 0, return Result(False, ...)
+    #    saying which, and what works: "radius must be more than 0 m".
+    # 2. wz_deg = math.degrees(speed / radius): + to the left, - to the right.
+    # 3. seconds = abs(angle) / abs(wz_deg)
+    # 4. return await walk(robot, speed, 0.0, wz_deg, seconds)  (walk checks it)
+    # Examples: arc("left") -> vx 0.4, wz +45.8 for 1.96 s |
+    #   arc("right", angle=180, radius=1.0, speed=0.6) -> vx 0.6, wz -34.4 for 5.24 s
+    return not_written("TODO 4", "arc in lab/part2_walk.py")
 # ====================================

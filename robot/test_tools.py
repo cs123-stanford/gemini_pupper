@@ -4,7 +4,7 @@
 Run them after every change to a file in lab/ (lab/test.py runs this file):
 
     python3 lab/test.py            # everything
-    python3 lab/test.py todo3      # one TODO (todo1 ... todo10)
+    python3 lab/test.py todo3      # one TODO (todo1 ... todo11)
     python3 lab/test.py part2      # one part of the lab (part1 ... part6)
     python3 lab/test.py robot      # the provided robot (should always pass)
     python3 lab/test.py optional_jump   # the optional jump
@@ -622,14 +622,81 @@ async def todo3() -> None:
         res = await rig.call("move", direction="forward", speed=1.5, duration=10.0)
         check("a move the robot refuses comes back as a failure with the reason",
               res.ok is False and "m" in res.message, f"got {res}",
-              passes='Result(False, "that would travel more than 5.0 m; ...") from walk -> check_move')
+              passes='Result(False, "that would travel 15.0 m, more than 5.0 m: go less far") from walk -> check_move')
+    finally:
+        rig.close()
+
+
+async def todo4() -> None:
+    print("TODO 4: the arc tool (walk and turn at the same time)")
+    rig = Rig()
+    try:
+        if described(rig, ["arc"], "TODO 4"):
+            text = json.dumps({d["name"]: d for d in tools.declarations(rig.ts)}["arc"])
+            check(f"arc's words give how far one arc can go (LIMITS.distance_max, {LIMITS.distance_max})",
+                  str(LIMITS.distance_max) in text,
+                  passes='f"... One arc goes at most {LIMITS.distance_max} m." (fails: "Walk in a curve.")')
+            check('... and say that it ends follow mode (says "follow")', "follow" in text.lower(),
+                  passes='"Walk forward and turn ..." + ENDS_FOLLOW (fails: leaving ENDS_FOLLOW out)')
+        res = await rig.call("arc", direction="left", angle=90, radius=0.5)
+        if unwritten(res):
+            skip(f"{unwritten(res)} is not written yet (arc needs TODO 2 and TODO 4)")
+            return
+
+        def swept(ts):
+            return math.degrees(sum(m.angular.z * (b[0] - a[0]) for (a, b), m in zip(zip(ts, ts[1:]), (t[1] for t in ts))))
+
+        twists = rig.robot.twists()
+        moving = walk_twists(rig)
+        wz = 45.84  # math.degrees(0.4 / 0.5)
+        check('arc("left", angle=90, radius=0.5) goes forward at the default 0.4 m/s and turns left',
+              bool(moving) and all(abs(m.linear.x - 0.4) < 1e-6 and abs(m.linear.y) < 1e-9 for m in moving)
+              and all(m.angular.z > 0 for m in moving),
+              f"result {res}; sent vx {sorted({round(m.linear.x, 2) for m in moving})},"
+              f" wz {sorted({round(math.degrees(m.angular.z), 1) for m in moving})} deg/s",
+              passes="walk(robot, 0.4, 0.0, +45.8, ...) (fails: vx = 0, a turn in place)")
+        check(f"... at wz = speed / radius = {wz:.1f} deg/s", bool(moving) and all(abs(math.degrees(m.angular.z) - wz) < 0.5 for m in moving),
+              f"sent wz {sorted({round(math.degrees(m.angular.z), 1) for m in moving})} deg/s",
+              passes="wz_deg = math.degrees(speed / radius) (fails: speed / radius = 0.8, which is rad/s)")
+        check("... for about 90 deg of the circle", 70 <= swept(twists) <= 110, f"turned about {swept(twists):.0f} deg",
+              passes="seconds = abs(angle) / abs(wz_deg) = 1.96 s")
+        rig.robot.published.clear()
+        res = await rig.call("arc", direction="right", angle=90, radius=0.5)
+        moving = walk_twists(rig)
+        check('arc("right", ...) turns right (wz < 0), still going forward (vx > 0)',
+              bool(moving) and all(m.angular.z < 0 and m.linear.x > 0 for m in moving),
+              f"result {res}; sent vx {sorted({round(m.linear.x, 2) for m in moving})},"
+              f" wz {sorted({round(math.degrees(m.angular.z), 1) for m in moving})}",
+              passes="wz_deg = -45.8, vx = +0.4 (fails: vx = -0.4, which backs up)")
+        rig.robot.published.clear()
+        res = await rig.call("arc", direction="left", speed=0.6, radius=1.0)
+        moving = walk_twists(rig)
+        check('arc("left", speed=0.6, radius=1.0) sends vx = 0.6, wz = +34.4 deg/s',
+              bool(moving) and all(abs(m.linear.x - 0.6) < 1e-6 and abs(math.degrees(m.angular.z) - 34.38) < 0.5 for m in moving),
+              f"result {res}; sent vx {sorted({round(m.linear.x, 2) for m in moving})},"
+              f" wz {sorted({round(math.degrees(m.angular.z), 1) for m in moving})}",
+              passes="vx = speed, wz_deg = math.degrees(0.6 / 1.0)")
+        rig.robot.published.clear()
+        try:
+            res = await rig.call("arc", direction="left", radius=0)
+        except ZeroDivisionError as e:
+            res = f"crashed: ZeroDivisionError: {e}"
+        check('arc("left", radius=0) is a failure that says "radius", and sends nothing',
+              getattr(res, "ok", True) is False and "radius" in res.message.lower() and not walk_twists(rig), f"got {res}",
+              passes='Result(False, "no arc: radius must be more than 0 m ...") (fails: a crash, dividing by 0)')
+        rig.robot.published.clear()
+        res = await rig.call("arc", direction="left", radius=0.1)
+        check(f"a too-tight arc (radius 0.1 m: 229 deg/s) is refused with check_move's reason ({LIMITS.wz_max})",
+              res.ok is False and str(LIMITS.wz_max) in res.message and not walk_twists(rig), f"got {res}",
+              passes=f'"too fast: limits are ... |wz|<={LIMITS.wz_max} deg/s" from walk -> check_move'
+                     " (fails: a success that quietly turned slower)")
     finally:
         rig.close()
 
 
 # ----------------------------------------------------------------------------- Part 3
-async def todo4() -> None:
-    print("TODO 4: any motion ends follow mode right away, and Gemini hears about it")
+async def todo5() -> None:
+    print("TODO 5: any motion ends follow mode right away, and Gemini hears about it")
     rig = Rig()
     try:
         res = await rig.ts.set_following(True)
@@ -638,7 +705,7 @@ async def todo4() -> None:
         res = await behaviors.stand_up(rig.ts)
         stopped_now = not rig.ts.following and not rig.robot.follower_on
         if not stopped_now and rig.robot.follow_calls == ["on"] and "follow" not in res.message.lower():
-            skip("TODO 4 (leave_follow_mode) is not written yet")
+            skip("TODO 5 (leave_follow_mode) is not written yet")
             return
         check("standing up ends follow mode right away (before the queue reaches it)", stopped_now,
               passes="await robot.stop_following() in leave_follow_mode (fails: doing it inside a job)")
@@ -677,17 +744,17 @@ async def todo4() -> None:
         rig.close()
 
 
-async def todo5() -> None:
-    print("TODO 5: the follow tool")
+async def todo6() -> None:
+    print("TODO 6: the follow tool")
     rig = Rig()
     try:
-        if described(rig, ["follow"], "TODO 5"):
+        if described(rig, ["follow"], "TODO 6"):
             text = json.dumps({d["name"]: d for d in tools.declarations(rig.ts)}["follow"]).lower()
             check('follow\'s description says what ends follow mode (says "end" or "stop")', "end" in text or "stop" in text,
                   passes='"... Talking keeps following; any motion tool ends it." (fails: "Follow the person.")')
         follow_text = prompt_sections("Follow mode")
         if "TODO" in follow_text or not follow_text:
-            skip("TODO 5: prompt.md still says TODO under Follow mode")
+            skip("TODO 6: prompt.md still says TODO under Follow mode")
         else:
             check('the prompt\'s Follow mode section says what ends following (says "end" or "stop")',
                   "end" in follow_text.lower() or "stop" in follow_text.lower(), follow_text,
@@ -706,14 +773,14 @@ async def todo5() -> None:
 
 
 # ----------------------------------------------------------------------------- Part 4
-async def todo6() -> None:
-    print("TODO 6: play_trick (the fake tricks: bow, roll_over, hold_pose)")
+async def todo7() -> None:
+    print("TODO 7: play_trick (the fake tricks: bow, roll_over, hold_pose)")
     rig = Rig()
     try:
         res = await behaviors.play_trick(rig.ts, "backflip")
         await rig.settle()
         if unwritten(res):
-            skip("TODO 6 (play_trick) is not written yet")
+            skip("TODO 7 (play_trick) is not written yet")
             return
         check("an unknown trick fails", not res.ok, f"got {res}", passes="Result(False, ...) when robot.tricks.get(name) is None")
         check("... and the message lists the tricks that exist", "bow" in res.message, f"got {res.message!r}",
@@ -726,7 +793,7 @@ async def todo6() -> None:
               passes='return what robot.queue(...) returns: "trick bow queued; ..." (fails: awaiting the job yourself)')
         await rig.settle()
         if any(unwritten(_Msg(message=o)) for o in rig.outcomes(start)):
-            skip("TODO 6 (play_policy_trick, the job) is not written yet")
+            skip("TODO 7 (play_policy_trick, the job) is not written yet")
             return
         on, off = rig.robot.activations(bow.controller), rig.robot.deactivations(bow.controller)
         check("the trick's controller took the legs", bool(on), f"switches: {rig.robot.switches}",
@@ -786,18 +853,18 @@ async def todo6() -> None:
         await rig.settle()
         res = await behaviors.play_trick(rig.ts, "bow")
         await rig.settle()
-        check('a trick ends follow mode (TODO 4\'s rule), and says so (says "follow")',
+        check('a trick ends follow mode (TODO 5\'s rule), and says so (says "follow")',
               not rig.ts.following and "follow" in res.message.lower(), f"got {res}",
               passes='with_note(note, ...): "Stopped following the person first. trick bow queued; ..."')
     finally:
         rig.close()
 
 
-async def todo7() -> None:
-    print("TODO 7: the play_trick tool")
+async def todo8() -> None:
+    print("TODO 8: the play_trick tool")
     rig = Rig()
     try:
-        if not described(rig, ["play_trick"], "TODO 7"):
+        if not described(rig, ["play_trick"], "TODO 8"):
             return
         decl = {d["name"]: d for d in tools.declarations(rig.ts)}["play_trick"]
         check("its description lists every trick with its own description (has {tricks})",
@@ -821,7 +888,7 @@ async def optional_jump() -> None:
         res = await behaviors.play_trick(rig.ts, "hop")
         await rig.settle()
         if unwritten(res):
-            skip("TODO 6 (play_trick) is not written yet")
+            skip("TODO 7 (play_trick) is not written yet")
             return
         refs = [m for _, topic, m in rig.robot.published if topic.endswith("/reference_trick")]
         check("a reference trick plays through the walking policy (robot.play_reference_trick)",
@@ -833,20 +900,20 @@ async def optional_jump() -> None:
 
 
 # ----------------------------------------------------------------------------- Part 5
-async def todo8() -> None:
-    print("TODO 8: trick actions (the fake clip trick 'hold_pose': wave_left, wave_right, leave)")
+async def todo9() -> None:
+    print("TODO 9: trick actions (the fake clip trick 'hold_pose': wave_left, wave_right, leave)")
     rig = Rig()
     try:
         ctrl = rig.ts.tricks["hold_pose"].controller
         res = await behaviors.trick_action(rig.ts, "wave_left")
         await rig.settle()
         if unwritten(res):
-            skip("TODO 8 (trick_action) is not written yet")
+            skip("TODO 9 (trick_action) is not written yet")
             return
         probe = await behaviors.play_trick(rig.ts, "bow")
         await rig.settle()
         if unwritten(probe) or any(unwritten(_Msg(message=o)) for o in rig.outcomes()):
-            skip("these checks need TODO 6 (play_trick) first")
+            skip("these checks need TODO 7 (play_trick) first")
             return
 
         start = len(rig.records)
@@ -930,11 +997,11 @@ async def todo8() -> None:
         rig.close()
 
 
-async def todo9() -> None:
-    print("TODO 9: the trick_action tool")
+async def todo10() -> None:
+    print("TODO 10: the trick_action tool")
     rig = Rig()
     try:
-        if described(rig, ["trick_action"], "TODO 9"):
+        if described(rig, ["trick_action"], "TODO 10"):
             decl = {d["name"]: d for d in tools.declarations(rig.ts)}["trick_action"]
             check("its description lists the actions (has {actions})", "Waves the left paw." in decl["description"],
                   decl["description"], passes='"Do something inside a trick ... Actions:\\n{actions}"')
@@ -960,7 +1027,7 @@ async def todo9() -> None:
         spec = yaml.safe_load(shake.read_text()) or {}
         text = json.dumps(spec)
         if "TODO" in text:
-            skip("TODO 9: tricks/sit_stay_shake/trick.yaml still says TODO")
+            skip("TODO 10: tricks/sit_stay_shake/trick.yaml still says TODO")
         else:
             check("sit_stay_shake/trick.yaml describes the trick (at least 20 characters)",
                   len(str(spec.get("description", ""))) >= 20, f"description: {spec.get('description')!r}",
@@ -974,11 +1041,11 @@ async def todo9() -> None:
 
 
 # ----------------------------------------------------------------------------- Part 6
-async def todo10() -> None:
-    print("TODO 10: prompt.md, second pass")
+async def todo11() -> None:
+    print("TODO 11: prompt.md, second pass")
     text = prompt_sections("Tricks", "Safety").lower()
     if "todo" in text or not text:
-        skip("TODO 10: prompt.md still says TODO under Tricks or Safety")
+        skip("TODO 11: prompt.md still says TODO under Tricks or Safety")
         return
     check('the prompt says what to do when someone says stop (says "stop")', "stop" in text,
           passes='"- If someone says stop, call stop right away."')
@@ -1135,18 +1202,18 @@ async def provided() -> None:
 
 # ----------------------------------------------------------------------------- main
 GROUPS = {
-    "todo1": todo1, "todo2": todo2, "todo3": todo3, "todo4": todo4, "todo5": todo5,
-    "todo6": todo6, "todo7": todo7, "todo8": todo8, "todo9": todo9, "todo10": todo10, "robot": provided,
+    "todo1": todo1, "todo2": todo2, "todo3": todo3, "todo4": todo4, "todo5": todo5, "todo6": todo6,
+    "todo7": todo7, "todo8": todo8, "todo9": todo9, "todo10": todo10, "todo11": todo11, "robot": provided,
     "optional_jump": optional_jump,
 }
 OPT_IN = {"optional_jump"}  # run only when asked for by name
 PARTS = {
     "part1": ["todo1"],
-    "part2": ["todo2", "todo3"],
-    "part3": ["todo4", "todo5"],
-    "part4": ["todo6", "todo7"],
-    "part5": ["todo8", "todo9"],
-    "part6": ["todo10"],
+    "part2": ["todo2", "todo3", "todo4"],
+    "part3": ["todo5", "todo6"],
+    "part4": ["todo7", "todo8"],
+    "part5": ["todo9", "todo10"],
+    "part6": ["todo11"],
 }
 
 

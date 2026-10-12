@@ -1,8 +1,8 @@
-"""Part 3: Follow. TODO 4 (the rule that ends follow mode), then TODO 5 (the follow tool).
+"""Part 3: Follow. TODO 5 (the rule that ends follow mode), then TODO 6 (the follow tool).
 
 The person follower itself is provided (robot.set_following). The rule is yours:
 
-    Questions and conversation keep following. Any motion (walk, turn, trick,
+    Questions and conversation keep following. Any motion (walk, turn, arc, trick,
     stand up, lie down) ends follow mode, and Pupper says so first:
     "Let me stop following you and ..."
 """
@@ -18,7 +18,7 @@ async def leave_follow_mode(robot: Robot) -> str:
     """Every motion calls this first, before it queues anything: look for it in
     stand_up (basics.py) and walk (part2_walk.py).
 
-    TODO 4 (Part 3) ------------------------------------------------------------
+    TODO 5 (Part 3) ------------------------------------------------------------
     The rule:            talking and questions keep following. Any motion (walk,
                          turn, trick, stand up, lie down) ends follow mode right
                          away, not when the queue gets to the motion.
@@ -38,9 +38,9 @@ async def leave_follow_mode(robot: Robot) -> str:
                            Fails:  "Done. activate walking queued; ..."
                          - when not following, the reply does NOT contain "follow"
                          - robot_status (a question) keeps following
-    Test:                python3 lab/test.py todo4
+    Test:                python3 lab/test.py todo5
     """
-    # ========== TODO 4: YOUR CODE HERE ==========
+    # ========== TODO 5: YOUR CODE HERE ==========
     # 1. If robot.following is False, there is nothing to do: return "".
     # 2. Turn the person follower off: await robot.stop_following()
     # 3. Stand still (the follower may have been walking): robot.send_speed(0, 0, 0)
@@ -51,24 +51,24 @@ async def leave_follow_mode(robot: Robot) -> str:
 
 
 # ============================================================ what Gemini reads
-# TODO 5: describe follow for Gemini, and write its body: robot.set_following(enabled)
+# TODO 6: describe follow for Gemini, and write its body: robot.set_following(enabled)
 # (provided) starts or stops the person follower. Gemini should know what keeps
-# follow mode on and what ends it (your rule in TODO 4).
+# follow mode on and what ends it (your rule in TODO 5).
 #   Tests check:
 #   - follow's description is 20+ characters, enabled is described, and the
 #     description says what ends it: it contains "end" or "stop".
 #     Passes: "... any motion tool (walk, turn, ...) ends it."  Fails: "Follow the person."
 #   - prompt.md's Follow mode section contains "end" or "stop"
 #   - follow(enabled=True) starts the follower, follow(enabled=False) stops it
-#   Test: python3 lab/test.py todo5
-# ========== TODO 5: YOUR CODE HERE ==========
+#   Test: python3 lab/test.py todo6
+# ========== TODO 6: YOUR CODE HERE ==========
 @tool(
     "follow",
-    "TODO 5: describe the follow tool for Gemini.",
-    enabled=Param("boolean", "TODO 5"),
+    "TODO 6: describe the follow tool for Gemini.",
+    enabled=Param("boolean", "TODO 6"),
 )
 async def follow_tool(robot: Robot, enabled: bool) -> Result:
     # One line: robot.set_following(enabled) (provided) starts or stops following, and
     # returns the Result Gemini should hear. Await it and return it.
-    return not_written("TODO 5", "follow in lab/part3_follow.py")
+    return not_written("TODO 6", "follow in lab/part3_follow.py")
 # ====================================
