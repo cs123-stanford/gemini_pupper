@@ -405,7 +405,7 @@ def described(rig: Rig, names: list[str], todo: str) -> bool:
         params = d.get("parameters", {}).get("properties", {})
         no_doc = [p for p, s in params.items() if len(s.get("description", "")) < 3]
         check(f"... and every parameter of {n} is described", not no_doc, f"missing: {no_doc}",
-              passes='angle=Param("number", "Degrees to turn, e.g. 90. Default 45.")')
+              passes='angle=Param("number", "Degrees to turn, e.g. 90. Default 90.")')
     return True
 
 
@@ -468,7 +468,7 @@ async def todo2() -> None:
         ("a zero duration", (0.4, 0.0, 0.0, 0.0), None),
         ("a negative duration", (0.4, 0.0, 0.0, -1.0), None),
         ("longer than duration_max", (0.4, 0.0, 0.0, L.duration_max + 1), str(L.duration_max)),
-        ("farther than distance_max in one move", (1.5, 0.0, 0.0, 4.0), str(L.distance_max)),
+        ("farther than distance_max in one move", (1.5, 0.0, 0.0, 6.0), str(L.distance_max)),
     ]
     for name, args, limit in bad:
         got = check_move(*args)
@@ -622,7 +622,7 @@ async def todo3() -> None:
         res = await rig.call("move", direction="forward", speed=1.5, duration=10.0)
         check("a move the robot refuses comes back as a failure with the reason",
               res.ok is False and "m" in res.message, f"got {res}",
-              passes='Result(False, "that would travel 15.0 m, more than 5.0 m: go less far") from walk -> check_move')
+              passes='Result(False, "that would travel 15.00 m, more than 7.0 m in one move: split it into shorter moves") from walk -> check_move')
     finally:
         rig.close()
 
@@ -669,7 +669,7 @@ async def todo4() -> None:
               f" wz {sorted({round(math.degrees(m.angular.z), 1) for m in moving})}",
               passes="wz_deg = -45.8, vx = +0.4 (fails: vx = -0.4, which backs up)")
         rig.robot.published.clear()
-        res = await rig.call("arc", direction="left", speed=0.6, radius=1.0)
+        res = await rig.call("arc", direction="left", angle=90, speed=0.6, radius=1.0)
         moving = walk_twists(rig)
         check('arc("left", speed=0.6, radius=1.0) sends vx = 0.6, wz = +34.4 deg/s',
               bool(moving) and all(abs(m.linear.x - 0.6) < 1e-6 and abs(math.degrees(m.angular.z) - 34.38) < 0.5 for m in moving),
@@ -677,19 +677,28 @@ async def todo4() -> None:
               f" wz {sorted({round(math.degrees(m.angular.z), 1) for m in moving})}",
               passes="vx = speed, wz_deg = math.degrees(0.6 / 1.0)")
         rig.robot.published.clear()
-        try:
-            res = await rig.call("arc", direction="left", radius=0)
-        except ZeroDivisionError as e:
-            res = f"crashed: ZeroDivisionError: {e}"
-        check('arc("left", radius=0) is a failure that says "radius", and sends nothing',
-              getattr(res, "ok", True) is False and "radius" in res.message.lower() and not walk_twists(rig), f"got {res}",
-              passes='Result(False, "no arc: radius must be more than 0 m ...") (fails: a crash, dividing by 0)')
+        res = await rig.call("arc", direction="left", angle=90, radius=0)
+        twists = rig.robot.twists()
+        moving = walk_twists(rig)
+        check('arc("left", angle=90, radius=0) turns in place, left, about 90 deg (a sharp corner)',
+              getattr(res, "ok", False) and bool(moving) and all(abs(m.linear.x) + abs(m.linear.y) < 1e-9 and m.angular.z > 0 for m in moving)
+              and 70 <= swept(twists) <= 110, f"got {res}; turned about {swept(twists):.0f} deg",
+              passes="walk(robot, 0.0, 0.0, +TURN_SPEED, abs(angle) / TURN_SPEED) (fails: a crash dividing by 0, or a refusal)")
+        check('... and the reply says so (says "place")', getattr(res, "ok", False) and "place" in res.message.lower(), f"got {res}",
+              passes='"Radius 0: turned in place (a sharp corner). move vx=0 ... queued"')
         rig.robot.published.clear()
-        res = await rig.call("arc", direction="left", radius=0.1)
-        check(f"a too-tight arc (radius 0.1 m: 229 deg/s) is refused with check_move's reason ({LIMITS.wz_max})",
-              res.ok is False and str(LIMITS.wz_max) in res.message and not walk_twists(rig), f"got {res}",
-              passes=f'"too fast: limits are ... |wz|<={LIMITS.wz_max} deg/s" from walk -> check_move'
-                     " (fails: a success that quietly turned slower)")
+        res = await rig.call("arc", direction="left", angle=90, radius=-1)
+        check('arc("left", radius=-1) is a failure that says "radius", and sends nothing',
+              res.ok is False and "radius" in res.message.lower() and not walk_twists(rig), f"got {res}",
+              passes='Result(False, "no arc: radius must be 0 m or more ...")')
+        rig.robot.published.clear()
+        res = await rig.call("arc", direction="left", angle=90, radius=0.1)
+        nums = [float(x) for x in re.findall(r"\d+\.\d+|\d+", res.message)] if not res.ok else []
+        check('a too-tight arc (radius 0.1 m at 0.4 m/s) fails, says "radius", and gives the smallest radius (0.2-0.3 m)',
+              res.ok is False and "radius" in res.message.lower() and any(0.2 <= n <= 0.3 for n in nums) and not walk_twists(rig),
+              f"got {res}",
+              passes='"too tight: at 0.4 m/s the radius must be at least 0.25 m" (fails: check_move\'s'
+                     ' "too fast: ... |wz|<=114.0": Gemini can\'t tell the radius is the problem)')
     finally:
         rig.close()
 

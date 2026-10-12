@@ -44,9 +44,9 @@ def check_move(vx: float, vy: float, wz_deg: float, duration: float, limits: Mov
                          - each bad move -> a non-empty reason
                          - the reason contains the limit's number, as Python
                            prints it: vx_max "1.5", vy_max "0.5", wz_max
-                           "114.0", duration_max "10.0", distance_max "5.0".
+                           "114.0", duration_max "20.0", distance_max "7.0".
                            Passes: f"... at most {limits.duration_max} s"
-                           Fails:  "too long", or "{limits.duration_max:.0f}" ("10")
+                           Fails:  "too long", or "{limits.duration_max:.0f}" ("20")
     Test:                python3 lab/test.py todo2
     """
     # ========== TODO 2: YOUR CODE HERE ==========
@@ -94,7 +94,7 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
         if not res.ok:
             return res
         end = robot.now() + duration
-        while robot.now() < end:  # keep the mux input alive
+        while robot.now() < end - 1e-6:  # keep the mux input alive (1e-6: no extra step from rounding)
             if robot.fallen:  # (3)
                 robot.send_speed(0, 0, 0)
                 return Result(False, FELL_MESSAGE)
@@ -134,7 +134,7 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
     direction=Param("string", "TODO 3", enum=["left", "right"]),
     angle=Param("number", "TODO 3", required=False),
 )
-async def turn_tool(robot: Robot, direction: str, angle: float = 45.0) -> Result:
+async def turn_tool(robot: Robot, direction: str, angle: float = 90.0) -> Result:
     # Turn in place: no forward or sideways speed, just a turning speed, for as long
     # as the angle takes.
     # 1. wz_deg: +TURN_SPEED to the left (counter-clockwise), -TURN_SPEED to the right.
@@ -186,9 +186,14 @@ async def move_tool(
 #   Now:                 work out vx and wz_deg from the radius and the speed, then
 #                        walk (walk checks the move with check_move and queues it).
 #   Gemini reads:        the words, to pick a radius the robot can do; then the
-#                        reply: walk's, or why there is no arc (a radius or speed
-#                        of 0 or less), or check_move's reason (too tight, too far).
+#                        reply: walk's, or why there is no arc (a negative radius,
+#                        a speed of 0 or less, or too tight a circle for that
+#                        speed), or check_move's reason (too long, too far).
 #   Must always be true: an arc the robot can't do never moves it and never crashes.
+#   Radius 0 is a sharp corner, not an error: Gemini plans a whole shape and sends
+#   every call at once, and it often asks for corners as arc(radius=0). Refuse
+#   them, and the sides still run: a rectangle becomes a straight line. So radius
+#   0 turns in place (like turn), and the reply says so.
 #   The math: around a circle of radius r (m) at speed v (m/s),
 #     wz_deg = math.degrees(v / r)   (+ to the left, - to the right)
 #     seconds = abs(angle) / abs(wz_deg)
@@ -198,39 +203,55 @@ async def move_tool(
 #   arc goes at most LIMITS.distance_max m. Add ENDS_FOLLOW.
 #   Tests check:
 #   - arc's description is 20+ characters, and every parameter is described
-#   - its words contain LIMITS.distance_max ("5.0") and "follow" (from ENDS_FOLLOW).
+#   - its words contain LIMITS.distance_max ("7.0") and "follow" (from ENDS_FOLLOW).
 #     Passes: f"... One arc goes at most {LIMITS.distance_max} m." + ENDS_FOLLOW
 #     Fails:  "Walk in a curve." (Gemini then asks for circles the robot refuses)
 #   - arc("left", angle=90, radius=0.5) sends vx = +0.4, vy = 0 and wz = +45.8 deg/s,
 #     and turns about 90 deg; arc("right", ...) sends a negative wz, still forward
 #   - arc("left", speed=0.6, radius=1.0) sends vx = 0.6 and wz = +34.4 deg/s
-#   - arc("left", radius=0) is a failure that says "radius", and sends nothing.
-#     Passes: "radius must be more than 0 m"   Fails: a crash (division by zero)
-#   - arc("left", radius=0.1) is too tight (229 deg/s): a failure with check_move's
-#     reason ("114.0").  Fails: a success that quietly turned slower
+#   - arc("left", angle=90, radius=0) turns in place, left, about 90 deg, and the
+#     reply says "place".
+#     Passes: "Radius 0: turned in place (a sharp corner). move vx=0 ... queued"
+#     Fails:  a crash (division by zero), or a refusal
+#   - arc("left", radius=-1) is a failure that says "radius", and sends nothing
+#   - arc("left", radius=0.1) is too tight (229 deg/s): a failure that says "radius"
+#     and gives the smallest radius that works at that speed (0.2-0.3 m at 0.4 m/s).
+#     Passes: "too tight: at 0.4 m/s the radius must be at least 0.25 m"
+#     Fails:  check_move's "too fast: ... |wz|<=114.0 deg/s" (Gemini can't tell the
+#             radius is the problem, and sends the same arc again), or a success
+#             that quietly turned slower
 #   Test: python3 lab/test.py todo4
 # ========== TODO 4: YOUR CODE HERE ==========
 @tool(
     "arc",
     "TODO 4: describe the arc tool for Gemini.",
     direction=Param("string", "TODO 4", enum=["left", "right"]),
-    angle=Param("number", "TODO 4", required=False),
+    angle=Param("number", "TODO 4"),
     radius=Param("number", "TODO 4", required=False),
     speed=Param("number", "TODO 4", required=False),
 )
 async def arc_tool(
     robot: Robot,
     direction: str,
-    angle: float = 90.0,
+    angle: float,
     radius: float = 0.5,
     speed: float = 0.4,
 ) -> Result:
-    # 1. No circle to follow: if radius <= 0 or speed <= 0, return Result(False, ...)
-    #    saying which, and what works: "radius must be more than 0 m".
-    # 2. wz_deg = math.degrees(speed / radius): + to the left, - to the right.
-    # 3. seconds = abs(angle) / abs(wz_deg)
-    # 4. return await walk(robot, speed, 0.0, wz_deg, seconds)  (walk checks it)
-    # Examples: arc("left") -> vx 0.4, wz +45.8 for 1.96 s |
+    # 1. No circle to follow: if radius < 0 or speed <= 0, return Result(False, ...)
+    #    saying which, and what works: "radius must be 0 m or more".
+    #    Radius 0 is a sharp corner: turn in place like your turn tool (+-TURN_SPEED,
+    #    for abs(angle) / TURN_SPEED s), and say so in front of walk's reply:
+    #      return with_note("Radius 0: turned in place (a sharp corner). ", await walk(...))
+    # 2. Too tight: if math.degrees(speed / radius) > LIMITS.wz_max, return a failure
+    #    with the smallest radius that works: speed / math.radians(LIMITS.wz_max).
+    #    (check_move would refuse it too, but "|wz|<=114.0" doesn't tell Gemini that
+    #    the radius is the problem.) Round up: f"{math.ceil(r * 100) / 100} m"
+    # 3. wz_deg = math.degrees(speed / radius): + to the left, - to the right.
+    # 4. seconds = abs(angle) / abs(wz_deg)
+    # 5. return await walk(robot, speed, 0.0, wz_deg, seconds)  (walk checks it)
+    # angle has no default: Gemini must say how much of the circle (left out, it
+    # walked a quarter when asked for a circle). The tool registry refuses a call without it.
+    # Examples: arc("left", 90) -> vx 0.4, wz +45.8 for 1.96 s |
     #   arc("right", angle=180, radius=1.0, speed=0.6) -> vx 0.6, wz -34.4 for 5.24 s
     return not_written("TODO 4", "arc in lab/part2_walk.py")
 # ====================================

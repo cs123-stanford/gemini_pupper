@@ -112,8 +112,8 @@ class MoveLimits:
     vx_max: float = 1.5  # m/s; above about 0.5 the default policy runs
     vy_max: float = 0.5  # m/s, the policy's trained sideways range
     wz_max: float = 114.0  # deg/s, the policy's trained 2 rad/s
-    duration_max: float = 10.0  # s
-    distance_max: float = 5.0  # m in one move, so a run can't cross the room
+    duration_max: float = 20.0  # s: long enough for a 1 m circle at a walk
+    distance_max: float = 7.0  # m in one move (a 1 m circle is 6.3 m), so a run can't cross the room
 
 
 LIMITS = MoveLimits()
