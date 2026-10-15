@@ -3,7 +3,8 @@
 Includes the course's neural_controller launch (walking policies, camera, joystick
 e-stop) exactly as pupper_gait_deploy installs it, and adds:
   - cmd_vel_mux, so the joystick, Gemini and the person follower share /cmd_vel
-  - Hailo person detection and the person follower
+  - the person follower: your Lab 5 follow-me (follow_me_pupper/follow_service.py)
+    when that repo is on the robot, else the monorepo's simple follower
   - gemini_walk, the walking controller Gemini drives (default policy, running
     allowed, reference tricks such as the jump enabled), and one controller per
     policy trick in <repo>/tricks (see robot/tricks.py). Every motion Gemini asks
@@ -12,6 +13,7 @@ The joystick still drives the robot, now through the mux, where it outranks Gemi
 
     ros2 launch robot/launch/gemini_pupper.launch.py
 """
+import os
 import sys
 from pathlib import Path
 
@@ -71,6 +73,34 @@ def gemini_controllers():
     return [ExecuteProcess(cmd=["python3", "-u", str(spawn), str(TRICK_PARAMS), *params], output="both")]
 
 
+def person_follower():
+    """The follower behind activate/deactivate_person_following.
+
+    Your Lab 5 follow-me when ~/follow_me_pupper (or $FOLLOW_ME_DIR) has
+    follow_service.py and the YOLO model: it opens the Hailo only while
+    following, with obstacle avoidance off. FOLLOW_ALWAYS_DETECT=1 keeps it
+    detecting (slowly) between follows, so the on-screen eyes track people all
+    the time; the robot runs warmer. Without that repo, the monorepo's Hailo
+    detector (always on) and its simpler follower, which chases whichever
+    person comes first and has no stop distance.
+    """
+    repo = Path(os.environ.get("FOLLOW_ME_DIR", Path.home() / "follow_me_pupper")).expanduser()
+    if (repo / "follow_service.py").exists() and (repo / "yolov8n_seg.hef").exists():
+        always = os.environ.get("FOLLOW_ALWAYS_DETECT", "0").lower() in ("1", "true", "yes")
+        print(f"[gemini_pupper] person follower: {repo}/follow_service.py"
+              + (" (always detecting, for the eyes)" if always else ""))
+        return [ExecuteProcess(
+            cmd=["python3", "-u", "follow_service.py", "--ros-args", "-r", "__node:=person_follower_node",
+                 "-p", f"always_detect:={'true' if always else 'false'}"],
+            cwd=str(repo), output="both", respawn=True, respawn_delay=3.0)]
+    print(f"[gemini_pupper] {repo} has no follow_service.py / yolov8n_seg.hef: "
+          "using the monorepo person follower")
+    return [
+        Node(package="hailo", executable="hailo_detection", output="both", respawn=True, respawn_delay=3.0),
+        Node(package="person_follower", executable="person_follower_node", output="both"),
+    ]
+
+
 def generate_launch_description():
     course = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -84,7 +114,6 @@ def generate_launch_description():
         Node(package="cmd_vel_mux", executable="cmd_vel_mux_node", parameters=[PARAMS], output="both"),
         Node(package="topic_tools", executable="throttle", name="joint_state_throttler",
              parameters=[PARAMS], arguments=["messages"], output="both"),
-        Node(package="hailo", executable="hailo_detection", output="both", respawn=True, respawn_delay=3.0),
-        Node(package="person_follower", executable="person_follower_node", output="both"),
+        *person_follower(),
         *gemini_controllers(),
     ])

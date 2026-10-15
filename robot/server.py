@@ -45,7 +45,11 @@ tools: Robot | None = None
 
 
 class Detections:
-    """Forwards Hailo person detections (ZMQ on localhost:5556) to browser WebSockets."""
+    """Forwards person detections (ZMQ on localhost:5556) to browser WebSockets.
+
+    The follower publishes them while it follows (it keeps the Hailo off
+    otherwise); the monorepo detector, when used instead, publishes them always.
+    """
 
     def __init__(self) -> None:
         self.clients: set[WebSocket] = set()
