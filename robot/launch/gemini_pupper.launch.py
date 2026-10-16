@@ -77,7 +77,8 @@ def person_follower():
     """The follower behind activate/deactivate_person_following.
 
     Your Lab 5 follow-me when ~/follow_me_pupper (or $FOLLOW_ME_DIR) has
-    follow_service.py and the YOLO model: it opens the Hailo only while
+    robot/follow_service.py and the YOLO model next to it (an older clone has
+    both at the top level): it opens the Hailo only while
     following, with obstacle avoidance off. FOLLOW_ALWAYS_DETECT=1 keeps it
     detecting (slowly) between follows, so the on-screen eyes track people all
     the time; the robot runs warmer. Without that repo, the monorepo's Hailo
@@ -85,14 +86,16 @@ def person_follower():
     person comes first and has no stop distance.
     """
     repo = Path(os.environ.get("FOLLOW_ME_DIR", Path.home() / "follow_me_pupper")).expanduser()
-    if (repo / "follow_service.py").exists() and (repo / "yolov8n_seg.hef").exists():
+    service = next((d for d in (repo / "robot", repo)
+                    if (d / "follow_service.py").exists() and (d / "yolov8n_seg.hef").exists()), None)
+    if service is not None:
         always = os.environ.get("FOLLOW_ALWAYS_DETECT", "0").lower() in ("1", "true", "yes")
-        print(f"[gemini_pupper] person follower: {repo}/follow_service.py"
+        print(f"[gemini_pupper] person follower: {service}/follow_service.py"
               + (" (always detecting, for the eyes)" if always else ""))
         return [ExecuteProcess(
             cmd=["python3", "-u", "follow_service.py", "--ros-args", "-r", "__node:=person_follower_node",
                  "-p", f"always_detect:={'true' if always else 'false'}"],
-            cwd=str(repo), output="both", respawn=True, respawn_delay=3.0)]
+            cwd=str(service), output="both", respawn=True, respawn_delay=3.0)]
     print(f"[gemini_pupper] {repo} has no follow_service.py / yolov8n_seg.hef: "
           "using the monorepo person follower")
     return [
