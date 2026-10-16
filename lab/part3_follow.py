@@ -1,6 +1,8 @@
 """Part 3: Follow. TODO 5 (the rule that ends follow mode), then TODO 6 (the follow tool).
 
-The person follower itself is provided (robot.set_following). The rule is yours:
+The person follower is your Lab 5 follow-me (its Steps 2 and 3: your target lock
+and stop distance, without the obstacle avoidance, which is not stable enough to
+trust here). robot.set_following (provided) turns it on and off. The rule is yours:
 
     Questions and conversation keep following. Any motion (walk, turn, arc, trick,
     stand up, lie down) ends follow mode, and Pupper says so first:
