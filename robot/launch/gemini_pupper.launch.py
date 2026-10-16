@@ -3,7 +3,7 @@
 Includes the course's neural_controller launch (walking policies, camera, joystick
 e-stop) exactly as pupper_gait_deploy installs it, and adds:
   - cmd_vel_mux, so the joystick, Gemini and the person follower share /cmd_vel
-  - the person follower: your Lab 5 follow-me (follow_me_pupper/follow_service.py)
+  - the person follower: your Lab 5 follow-me (follow_me_pupper/robot/follow_service.py)
     when that repo is on the robot, else the monorepo's simple follower
   - gemini_walk, the walking controller Gemini drives (default policy, running
     allowed, reference tricks such as the jump enabled), and one controller per
