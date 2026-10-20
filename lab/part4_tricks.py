@@ -24,8 +24,8 @@ from tricks import Trick
 
 # ============================================================ what the robot does
 async def play_trick(robot: Robot, name: str) -> Result:
-    """Play a trick from <repo>/tricks. Every trick in the lab is a policy trick:
-    it plays its own controller (the job is play_policy_trick below).
+    """Play a trick from <repo>/tricks. Every trick in the lab is played by trick
+    policies on their own controllers (the job is play_policy_trick below).
 
     TODO 7 (Part 4) ------------------------------------------------------------
     Now:                 an unknown name fails with f"unknown trick '{name}';

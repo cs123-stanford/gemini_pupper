@@ -176,7 +176,7 @@ flowchart TB
 | Track a person | `WS /ws/detections` | Animated eye direction |
 | Set speaker volume | `POST /system/volume` | Debug control |
 
-The animation endpoint plays a trick from `tricks/` by id, such as `sneeze` or `swim`. Every trick is a policy, so playing one switches the legs to that trick's controller (or, for the jump, feeds a reference to the locomotion policy), and the command queue waits for the trick to finish so later actions do not overlap it. The robot is always in exactly one state: locomotion, one trick (trick mode), motors idle, or fallen.
+The animation endpoint plays a trick from `tricks/` by id, such as `sneeze` or `swim`. Every trick is played by policies, so playing one switches the legs to that trick's controller (or, for the jump, feeds a reference to the locomotion policy), and the command queue waits for the trick to finish so later actions do not overlap it. The robot is always in exactly one state: locomotion, one trick (trick mode), motors idle, or fallen.
 
 ### Camera and person tracking
 

@@ -1,7 +1,7 @@
 """Tricks: everything under <repo>/tricks/<name>/trick.yaml.
 
-Every trick is played by a policy, so playing one is a controller switch
-into trick mode:
+Every trick is played by trick policies (a playback trick by one, an interactive
+trick by one or more), so playing one is a controller switch into trick mode:
 
   type: policy   a trick policy: a tracking policy trained to follow a reference
                  motion (``policy``: the JSON from pupper-mjlab's
