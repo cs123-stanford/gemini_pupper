@@ -88,7 +88,7 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
     refused = check_move(vx, vy, wz_deg, duration)  # your TODO 2: is this move allowed?
     if refused:
         return Result(False, refused)  # Gemini hears why; nothing is queued
-    note = await prepare_to_move(robot)  # your TODO 5: any motion ends follow mode
+    note = await prepare_to_move(robot)  # get ready: does nothing until your TODO 5 (Part 3)
     state = robot.state_after_queue  # where Pupper will be when this job runs
     walker = robot.walking_controller(state)  # the locomotion policy, or a walking trick's own
     vx, vy, wz_deg, duration, slower = robot.slow_to(state, vx, vy, wz_deg, duration)

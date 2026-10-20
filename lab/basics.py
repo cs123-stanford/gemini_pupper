@@ -51,7 +51,7 @@ ENDS_FOLLOW = (
 # ============================================================ what the robot does
 async def stand_up(robot: Robot) -> Result:
     """Stand up in locomotion mode (also: stand up after a trick)."""
-    note = await prepare_to_move(robot)  # (1) now: any motion ends follow mode (TODO 5)
+    note = await prepare_to_move(robot)  # (1) now: get ready (does nothing until your TODO 5, Part 3)
 
     async def job() -> Result:  # (2) later: give the legs to the locomotion policy
         return await robot.switch_to(LOCOMOTION_CONTROLLER)

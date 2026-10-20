@@ -17,7 +17,13 @@ from tool_registry import Param, tool
 async def prepare_to_move(robot: Robot) -> str:
     """Get the robot ready for a new motion. Every motion calls this first,
     before it queues anything: look for it in stand_up (basics.py) and walk
-    (part2_walk.py). Today it has one job: end follow mode.
+    (part2_walk.py).
+
+    What it is for: stopping anything that runs on its own, outside the queue,
+    and would fight with the new motion. In Gemini Pupper that is the person
+    follower, so its one job is to end follow mode; it is also where anything
+    like it you add later goes (a patrol loop, dancing to music). Getting the
+    legs ready is a different job, done later in the job by switch_to.
 
     TODO 5 (Part 3) ------------------------------------------------------------
     The rule:            talking and questions keep following. Any motion (walk,
