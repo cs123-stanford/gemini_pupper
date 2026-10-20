@@ -190,7 +190,7 @@ async def trick_action(req: TrickAction):
 
 @app.get("/trick_actions")
 def trick_actions():
-    """Actions of clip tricks (e.g. shake a paw while sitting): id -> trick and description."""
+    """Actions of interactive tricks (e.g. shake a paw while sitting): id -> trick and description."""
     return {aid: {"trick": t.name, "description": t.actions[clip]} for aid, (t, clip) in T().action_ids().items()}
 
 

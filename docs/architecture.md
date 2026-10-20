@@ -62,7 +62,7 @@ flowchart LR
 | Robot bridge | Maps browser operations to the robot's HTTP API | [web/services/robotBridge.ts](../web/services/robotBridge.ts) |
 | Robot API | Exposes control, camera, tracking, and telemetry endpoints on port 8000 | [robot/server.py](../robot/server.py) |
 | Gemini's tools | The prompt, what Gemini reads about each tool, and what each tool does | [lab/prompt.md](../lab/prompt.md) and the `@tool`s and behaviors in [lab/](../lab/) |
-| Robot side | The job queue, leg-controller switching, clip tricks, falls, follow mode, the e-stop | [robot/robot_api.py](../robot/robot_api.py) |
+| Robot side | The job queue, the robot's state, leg-controller switching, interactive tricks, falls, follow mode, the e-stop | [robot/robot_api.py](../robot/robot_api.py) |
 | Robot stack | Converts high-level requests into queued ROS motion and behavior operations | [Pupper v3 monorepo](https://github.com/Nate711/pupperv3-monorepo) |
 
 ## End-to-end conversation and action
@@ -176,7 +176,7 @@ flowchart TB
 | Track a person | `WS /ws/detections` | Animated eye direction |
 | Set speaker volume | `POST /system/volume` | Debug control |
 
-The animation endpoint plays a trick from `tricks/` by id, such as `sneeze` or `swim`. Every trick is a policy, so playing one switches the legs to that trick's controller (or, for the jump, feeds a reference to the walking policy), and the command queue waits for the trick to finish so later actions do not overlap it. The robot is always on exactly one policy (walking or a trick) or has its motors off.
+The animation endpoint plays a trick from `tricks/` by id, such as `sneeze` or `swim`. Every trick is a policy, so playing one switches the legs to that trick's controller (or, for the jump, feeds a reference to the locomotion policy), and the command queue waits for the trick to finish so later actions do not overlap it. The robot is always in exactly one state: locomotion, one trick (trick mode), motors idle, or fallen.
 
 ### Camera and person tracking
 
@@ -226,7 +226,7 @@ The default robot URL is `http://localhost:8000`. This works when Chrome runs on
 ## Startup lifecycle
 
 1. `robot/start.sh` launches the robot stack (`robot/launch/gemini_pupper.launch.py`: every leg controller loaded, none active) and then the FastAPI process (`robot/server.py`).
-2. FastAPI's lifespan hook creates the `Robot` (`robot/robot_api.py`); its queue first checks whether a clip trick is still holding a pose from before a restart.
+2. FastAPI's lifespan hook creates the `Robot` (`robot/robot_api.py`); its queue first checks which state the robot was left in before a restart (an interactive trick it is still in, say).
 3. If ZMQ is available, a background subscriber connects to the local person-detection publisher.
 4. The user opens the Cloud Run URL in Chrome.
 5. The browser loads settings and connects to the robot API.

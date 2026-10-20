@@ -5,7 +5,7 @@ Run them after every change to a file in lab/ (lab/test.py runs this file):
 
     python3 lab/test.py            # everything
     python3 lab/test.py todo3      # one TODO (todo1 ... todo11)
-    python3 lab/test.py part2      # one part of the lab (part1 ... part6)
+    python3 lab/test.py part2      # one part of the lab (part1 ... part7; part6, the spider, is the notebook)
     python3 lab/test.py robot      # the provided robot (should always pass)
     python3 lab/test.py optional_jump   # the optional jump
 
@@ -86,6 +86,7 @@ class FakeRobot:
         self.subs: dict[str, list] = {}
         self.follower_on = False
         self.follow_calls: list[str] = []
+        self.start_clips: dict[str, list[str]] = {}  # controller -> start_clip values set, in order
 
     def active(self) -> set[str]:
         return {n for n, s in self.controllers.items() if s == "active"}
@@ -117,6 +118,12 @@ class FakeRobot:
                 self.controllers[c] = "active"
             self.switches.append((self.clock.now, list(req.deactivate_controllers), list(req.activate_controllers)))
             return _Msg(ok=True)
+        if service.endswith("/set_parameters"):
+            controller = service.split("/")[1]
+            for prm in req.parameters:
+                if prm.name == "start_clip":
+                    self.start_clips.setdefault(controller, []).append(prm.value.string_value)
+            return _Msg(results=[_Msg(successful=True)])
         if service == "activate_person_following":
             self.follower_on = True
             self.follow_calls.append("on")
@@ -204,7 +211,9 @@ def _install_fake_ros() -> None:
     mod("geometry_msgs")
     mod("geometry_msgs.msg", Twist=_Twist)
     mod("rcl_interfaces")
-    mod("rcl_interfaces.msg", Log=_Msg)
+    mod("rcl_interfaces.msg", Log=_Msg, Parameter=_Msg, ParameterValue=_Msg,
+        ParameterType=types.SimpleNamespace(PARAMETER_STRING=4))
+    mod("rcl_interfaces.srv", SetParameters=_Srv)
     mod("sensor_msgs")
     mod("sensor_msgs.msg", CompressedImage=_Msg, Imu=_Msg, JointState=_Msg)
     mod("std_msgs")
@@ -218,7 +227,7 @@ import robot_api  # noqa: E402
 import tool_registry as tools  # noqa: E402  (call and declarations: what the web app uses)
 behaviors = tools.load_lab()  # noqa: E402  (everything in lab/: lab.walk, lab.check_move, ...)
 check_move = behaviors.check_move
-from robot_api import LIMITS, LLM_CMD_RATE, WALK_READY_S, WALKING_CONTROLLER, Robot  # noqa: E402
+from robot_api import LIMITS, LLM_CMD_RATE, LOCOMOTION, LOCOMOTION_CONTROLLER, WALK_READY_S, Robot  # noqa: E402
 from tricks import Trick  # noqa: E402
 
 _real_sleep = asyncio.sleep
@@ -287,7 +296,7 @@ def fixture_tricks() -> dict[str, Trick]:
 
 
 class Rig:
-    """A fresh Robot wired to a fresh fake robot, standing on the walking policy."""
+    """A fresh Robot wired to a fresh fake robot, standing in locomotion mode."""
 
     def __init__(self, tricks=None):
         global ROBOT
@@ -297,9 +306,10 @@ class Rig:
         robot_api.time = types.SimpleNamespace(monotonic=self.clock.monotonic)
         robot_api.asyncio = _AsyncioShim(self.clock)
         robot_api.load_tricks = made
-        names = set(robot_api.LEG_CONTROLLERS) | {t.controller for t in made().values()}
+        names = (set(robot_api.LEG_CONTROLLERS) | {t.controller for t in made().values()}
+                 | {t.walk_controller for t in made().values() if t.walks})
         self.robot.controllers = {n: "inactive" for n in names}
-        self.robot.controllers[WALKING_CONTROLLER] = "active"
+        self.robot.controllers[LOCOMOTION_CONTROLLER] = "active"
         self.records: list[logging.LogRecord] = []
         handler = logging.Handler()
         handler.emit = self.records.append
@@ -496,7 +506,7 @@ async def provided_walk() -> None:
         check("... and nothing was queued or published",
               rig.ts.commands.empty() and not rig.robot.twists(), f"published {len(rig.robot.twists())} commands")
 
-        rig.robot.controllers[WALKING_CONTROLLER] = "inactive"  # lying down
+        rig.robot.controllers[LOCOMOTION_CONTROLLER] = "inactive"  # lying down
         start = len(rig.records)
         res = await behaviors.walk(rig.ts, 0.4, 0.0, 0.0, 2.0)
         check("a good move is accepted right away (queued)", res.ok is True and "queued" in res.message, f"got {res}")
@@ -505,7 +515,7 @@ async def provided_walk() -> None:
             return
         crashed = [o for o in rig.outcomes(start) if "raised" in o]
         check("the job ran without crashing", not crashed, "; ".join(crashed))
-        check("the walking policy took the legs", WALKING_CONTROLLER in rig.robot.active())
+        check("the locomotion policy took the legs", LOCOMOTION_CONTROLLER in rig.robot.active())
         twists = rig.robot.twists()
         moving = [m for _, m in twists if abs(m.linear.x) > 1e-6]
         check("it sent the forward speed", bool(moving) and all(abs(m.linear.x - 0.4) < 1e-6 for m in moving),
@@ -536,7 +546,7 @@ async def provided_walk() -> None:
         t0 = rig.clock.now
         while rig.clock.now < t0 + 1.0:
             await _real_sleep(0)
-        rig.ts.fallen = WALKING_CONTROLLER  # as if the tilt e-stop had just tripped
+        rig.ts.fallen = LOCOMOTION_CONTROLLER  # as if the tilt e-stop had just tripped
         await rig.settle()
         twists = rig.robot.twists()
         check("if the robot falls while walking, it stops sending the speed",
@@ -714,20 +724,20 @@ async def todo5() -> None:
         res = await behaviors.stand_up(rig.ts)
         stopped_now = not rig.ts.following and not rig.robot.follower_on
         if not stopped_now and rig.robot.follow_calls == ["on"] and "follow" not in res.message.lower():
-            skip("TODO 5 (leave_follow_mode) is not written yet")
+            skip("TODO 5 (prepare_to_move) is not written yet")
             return
         check("standing up ends follow mode right away (before the queue reaches it)", stopped_now,
-              passes="await robot.stop_following() in leave_follow_mode (fails: doing it inside a job)")
+              passes="await robot.stop_following() in prepare_to_move (fails: doing it inside a job)")
         check('the tool result tells Gemini it stopped following (says "follow")', "follow" in res.message.lower(),
               f"result was {res.message!r}",
-              passes='"Stopped following the person first. activate walking queued; ..." (fails: "activate walking queued; ...")')
+              passes='"Stopped following the person first. stand up queued; ..." (fails: "stand up queued; ...")')
         await rig.settle()
         await rig.ts.set_following(True)
         await rig.settle()
         res = await behaviors.lie_down(rig.ts)
         check("lying down ends follow mode too", not rig.ts.following and not rig.robot.follower_on)
         check('... and says so (says "follow")', "follow" in res.message.lower(), f"result was {res.message!r}",
-              passes='"Stopped following the person first. deactivate queued; ..."')
+              passes='"Stopped following the person first. lie down queued; ..."')
         await rig.settle()
         await rig.ts.set_following(True)
         await rig.settle()
@@ -742,13 +752,13 @@ async def todo5() -> None:
         res = await behaviors.stand_up(rig.ts)
         check("with follow mode off, results don't mention following", "follow" not in res.message.lower(),
               f"result was {res.message!r}",
-              passes='"activate walking queued; ..." (fails: "Stopped following ..." when it wasn\'t following: return "")')
+              passes='"stand up queued; ..." (fails: "Stopped following ..." when it wasn\'t following: return "")')
         await rig.settle()
         await rig.ts.set_following(True)
         await rig.settle()
         await rig.ts.mode()
         check("asking what mode it is in keeps following", rig.ts.following and rig.robot.follower_on,
-              passes="only motions call leave_follow_mode; questions (robot_status) don't")
+              passes="only motions call prepare_to_move; questions (robot_status) don't")
     finally:
         rig.close()
 
@@ -811,21 +821,21 @@ async def todo7() -> None:
               f"held it {off[-1] - on[-1] if on and off else 0:.1f} s of {bow.total_time:.1f} s",
               passes="the provided play_policy_trick as the job (it waits trick.total_time)")
         check("a trick that ends standing hands the legs back to walking",
-              WALKING_CONTROLLER in rig.robot.active() and bow.controller not in rig.robot.active(),
+              LOCOMOTION_CONTROLLER in rig.robot.active() and bow.controller not in rig.robot.active(),
               f"active: {sorted(rig.robot.active())}", passes="the provided play_policy_trick as the job")
-        check('... and the outcome says so (says "walk")', any("walk" in o for o in rig.outcomes(start)),
-              f"log: {rig.outcomes(start)}", passes='"played bow; back on the walking policy"')
+        check('... and the outcome says so (says "locomotion")', any("locomotion" in o for o in rig.outcomes(start)),
+              f"log: {rig.outcomes(start)}", passes='"played bow; back in locomotion mode"')
 
         roll = rig.ts.tricks["roll_over"]
         start = len(rig.records)
         await behaviors.play_trick(rig.ts, "roll_over")
         await rig.settle()
         check("a trick that ends lying down keeps its controller holding the pose",
-              roll.controller in rig.robot.active() and WALKING_CONTROLLER not in rig.robot.active(),
+              roll.controller in rig.robot.active() and LOCOMOTION_CONTROLLER not in rig.robot.active(),
               f"active: {sorted(rig.robot.active())}", passes="the provided play_policy_trick as the job")
         check('... and the outcome says it holds the final pose (says "hold" or "pose")',
               any("hold" in o or "pose" in o for o in rig.outcomes(start)), f"log: {rig.outcomes(start)}",
-              passes='"played roll_over; the trick controller holds the final pose"')
+              passes='"played roll_over; it holds its final pose (lying)"')
         n_on = len(rig.robot.activations(roll.controller))
         await behaviors.play_trick(rig.ts, "roll_over")
         await rig.settle()
@@ -837,8 +847,8 @@ async def todo7() -> None:
         start = len(rig.records)
         res = await behaviors.play_trick(rig.ts, "hold_pose")
         await rig.settle()
-        check("a clip trick ends holding its pose", hold.controller in rig.robot.active() and rig.ts.holding_now is hold,
-              f"active: {sorted(rig.robot.active())}; holding_now: {rig.ts.holding_now}",
+        check("an interactive trick: Pupper stays in it", hold.controller in rig.robot.active() and rig.ts.state_now is hold,
+              f"active: {sorted(rig.robot.active())}; state_now: {rig.ts.state_now}",
               passes="the provided play_policy_trick as the job")
         out = " ".join(rig.outcomes(start))
         check("... and the outcome lists its actions and its exit clip", "wave_left" in out and "leave" in out,
@@ -848,10 +858,10 @@ async def todo7() -> None:
         start = len(rig.records)
         await behaviors.play_trick(rig.ts, "hold_pose")
         await rig.settle()
-        check("asking for the clip trick it is already holding does nothing, and says so",
+        check("asking for the interactive trick Pupper is already in does nothing, and says so",
               len(rig.robot.switches) == n_switches and any("already" in o for o in rig.outcomes(start)),
               f"log: {rig.outcomes(start)}",
-              passes='"already doing hold_pose" (needs then_holding=trick for a clip trick; fails: then_holding=None)')
+              passes='"already doing hold_pose" (needs then=trick for an interactive trick; fails: then=LOCOMOTION)')
 
     finally:
         rig.close()
@@ -900,8 +910,8 @@ async def optional_jump() -> None:
             skip("TODO 7 (play_trick) is not written yet")
             return
         refs = [m for _, topic, m in rig.robot.published if topic.endswith("/reference_trick")]
-        check("a reference trick plays through the walking policy (robot.play_reference_trick)",
-              bool(refs) and WALKING_CONTROLLER in rig.robot.active(),
+        check("a reference trick plays through the locomotion policy (robot.play_reference_trick)",
+              bool(refs) and LOCOMOTION_CONTROLLER in rig.robot.active(),
               f"got {res}; log: {rig.outcomes()}; active: {sorted(rig.robot.active())}",
               passes='trick.kind == "reference" -> job = lambda: robot.play_reference_trick(trick)')
     finally:
@@ -910,7 +920,7 @@ async def optional_jump() -> None:
 
 # ----------------------------------------------------------------------------- Part 5
 async def todo9() -> None:
-    print("TODO 9: trick actions (the fake clip trick 'hold_pose': wave_left, wave_right, leave)")
+    print("TODO 9: trick actions (the fake interactive trick 'hold_pose': wave_left, wave_right, leave)")
     rig = Rig()
     try:
         ctrl = rig.ts.tricks["hold_pose"].controller
@@ -940,7 +950,7 @@ async def todo9() -> None:
         res = await behaviors.trick_action(rig.ts, "wave_left")  # hold_pose is not running
         await rig.settle()
         check("an action while its trick is not running fails right away", not res.ok, f"got {res}",
-              passes="refuse now if robot.holding_after_queue is not trick (fails: only checking in the job)")
+              passes="refuse now if robot.state_after_queue is not trick (fails: only checking in the job)")
         check("... the message says which trick has to run first", "hold_pose" in res.message, f"got {res.message!r}",
               passes='"wave_left only works while hold_pose is running; play it first (play_trick hold_pose)"')
         check("... and nothing was sent to the trick", not rig.robot.clips(ctrl), passes="return before robot.queue")
@@ -956,23 +966,23 @@ async def todo9() -> None:
               passes="await robot.play_clip(trick, clip) in the job")
         check("... without a failure in the queue", not rig.failures(start), f"{rig.failures(start)}",
               passes="the job returns play_clip's Result")
-        check("... and the trick keeps holding its pose afterwards",
-              ctrl in rig.robot.active() and WALKING_CONTROLLER not in rig.robot.active(),
+        check("... and Pupper stays in the trick afterwards",
+              ctrl in rig.robot.active() and LOCOMOTION_CONTROLLER not in rig.robot.active(),
               passes="no switch_to after a clip that isn't the exit clip")
 
         await behaviors.trick_action(rig.ts, "leave")
         await rig.settle()
         check("the exit clip plays", rig.robot.clips(ctrl)[-1:] == ["leave"], f"clips sent: {rig.robot.clips(ctrl)}",
-              passes="await robot.play_clip(trick, clip), as for any clip")
-        check("... then the walking policy takes the legs back",
-              WALKING_CONTROLLER in rig.robot.active() and ctrl not in rig.robot.active(),
+              passes="await robot.switch_to(LOCOMOTION_CONTROLLER): it plays the exit clip on the way out")
+        check("... then the locomotion policy takes the legs back",
+              LOCOMOTION_CONTROLLER in rig.robot.active() and ctrl not in rig.robot.active(),
               f"active: {sorted(rig.robot.active())}",
-              passes="after the exit clip: await robot.switch_to(WALKING_CONTROLLER)")
-        check("... and nothing is holding a pose any more", rig.ts.holding_now is None,
-              passes="robot.holding_now = None after the exit clip")
+              passes="for the exit clip: await robot.switch_to(LOCOMOTION_CONTROLLER)")
+        check("... and Pupper is in locomotion mode again", rig.ts.state_now == LOCOMOTION,
+              f"state_now: {rig.ts.state_now}", passes="switch_to keeps robot.state_now up to date")
         res = await behaviors.trick_action(rig.ts, "wave_left")
         check("after the exit clip, actions are refused again", not res.ok, f"got {res}",
-              passes="then_holding=None when queuing the exit clip (fails: then_holding=trick)")
+              passes="then=LOCOMOTION when queuing the exit clip (fails: then=trick)")
     finally:
         rig.close()
 
@@ -987,13 +997,13 @@ async def todo9() -> None:
         check("an action queued right behind its trick is accepted and plays",
               res.ok and "wave_right" in rig.robot.clips(ctrl),
               f"result {res}; queue: {rig.failures(start)}; clips sent: {rig.robot.clips(ctrl)}",
-              passes="the now-check asks robot.holding_after_queue (fails: asking robot.holding_now or is_active now)")
+              passes="the now-check asks robot.state_after_queue (fails: asking robot.state_now or is_active now)")
 
         # Queued behind the trick, but the trick was relaxed before the queue got there.
         await behaviors.play_trick(rig.ts, "hold_pose")
         await rig.settle()
         await behaviors.lie_down(rig.ts)  # queued: relaxes the motors
-        rig.ts.holding_after_queue = rig.ts.tricks["hold_pose"]  # as if it were still coming
+        rig.ts.state_after_queue = rig.ts.tricks["hold_pose"]  # as if it were still coming
         rig.robot.published.clear()
         start = len(rig.records)
         res = await behaviors.trick_action(rig.ts, "wave_left")
@@ -1001,7 +1011,7 @@ async def todo9() -> None:
         check("when the queue gets to an action, it checks again that its trick is running",
               not rig.robot.clips(ctrl) and bool(rig.failures(start)),
               f"clips sent: {rig.robot.clips(ctrl)}; log: {rig.outcomes(start)}",
-              passes="in the job, first: if not await robot.is_active(trick.controller): return Result(False, ...)")
+              passes="in the job, first: if robot.state_now is not trick: return Result(False, ...)")
     finally:
         rig.close()
 
@@ -1049,7 +1059,7 @@ async def todo10() -> None:
         print("  --   (no tricks/sit_stay_shake yet: fetch your policy with get_trick.py, Part 5)")
 
 
-# ----------------------------------------------------------------------------- Part 6
+# ----------------------------------------------------------------------------- Part 7
 async def todo11() -> None:
     print("TODO 11: prompt.md, second pass")
     text = prompt_sections("Tricks", "Safety").lower()
@@ -1076,12 +1086,12 @@ async def provided() -> None:
         check("a value outside a tool's choices is refused, listing the choices",
               not bad.ok and "bow" in bad.message, f"got {bad}")
 
-        rig.robot.controllers[WALKING_CONTROLLER] = "inactive"
+        rig.robot.controllers[LOCOMOTION_CONTROLLER] = "inactive"
         rig.ts.walk_since = None
         await behaviors.stand_up(rig.ts)
         on_at = rig.clock.now
         await rig.settle()
-        check("stand_up hands the legs to the walking policy", WALKING_CONTROLLER in rig.robot.active())
+        check("stand_up hands the legs to the locomotion policy", LOCOMOTION_CONTROLLER in rig.robot.active())
         check("... and waits until the policy is ready before the next job starts",
               rig.clock.now - on_at >= WALK_READY_S - 0.01, f"ready after {rig.clock.now - on_at:.2f} s")
         await behaviors.lie_down(rig.ts)
@@ -1098,11 +1108,11 @@ async def provided() -> None:
         check("after a fall, robot_status says it fell over", "fall" in res.message.lower() or "fell" in res.message.lower(),
               f"got {res.message!r}")
         rig.imu(tilt_deg=70)
-        res = await rig.ts.switch_to(WALKING_CONTROLLER)
+        res = await rig.ts.switch_to(LOCOMOTION_CONTROLLER)
         check("standing up while still tipped over is refused, asking for help",
               not res.ok and "upright" in res.message, f"got {res}")
         rig.imu(tilt_deg=3)
-        res = await rig.ts.switch_to(WALKING_CONTROLLER)
+        res = await rig.ts.switch_to(LOCOMOTION_CONTROLLER)
         check("once upright and still, standing up works again", res.ok and rig.ts.fallen is None, f"got {res}")
 
         await rig.ts.wait(5.0)
@@ -1111,21 +1121,21 @@ async def provided() -> None:
     finally:
         rig.close()
 
-    # The server restarted while the robot sat in a clip trick.
+    # The server restarted while the robot sat in an interactive trick.
     rig = Rig()
     try:
         hold = fixture_tricks()["hold_pose"]
-        rig.robot.controllers[WALKING_CONTROLLER] = "inactive"
+        rig.robot.controllers[LOCOMOTION_CONTROLLER] = "inactive"
         rig.robot.controllers[hold.controller] = "active"
         rig.ts.worker.cancel()
         rig.ts = Robot()  # a fresh server, the robot still sitting
         await rig.settle()
-        check("a restarted server notices the robot is still holding a clip trick's pose",
-              rig.ts.holding_now is not None and rig.ts.holding_now.name == "hold_pose", f"holding_now: {rig.ts.holding_now}")
+        check("a restarted server notices the robot is still in an interactive trick",
+              getattr(rig.ts.state_now, "name", None) == "hold_pose", f"state_now: {rig.ts.state_now}")
         await behaviors.stand_up(rig.ts)
         await rig.settle()
         check("... so standing up plays the trick's exit clip first",
-              rig.robot.clips(hold.controller)[-1:] == ["leave"] and WALKING_CONTROLLER in rig.robot.active(),
+              rig.robot.clips(hold.controller)[-1:] == ["leave"] and LOCOMOTION_CONTROLLER in rig.robot.active(),
               f"clips sent: {rig.robot.clips(hold.controller)}; active: {sorted(rig.robot.active())}")
     finally:
         rig.close()
@@ -1145,7 +1155,7 @@ async def provided() -> None:
     rig = Rig()
     try:
         bow, hold = rig.ts.tricks["bow"], rig.ts.tricks["hold_pose"]
-        await rig.ts.queue("trick bow", lambda: behaviors.play_policy_trick(rig.ts, bow), bow.total_time)
+        await rig.ts.queue("trick bow", lambda: behaviors.play_policy_trick(rig.ts, bow), bow.total_time, then=LOCOMOTION)
         t0 = rig.clock.now
         while rig.clock.now < t0 + 2.0:  # two seconds into the bow
             await _real_sleep(0)
@@ -1157,26 +1167,139 @@ async def provided() -> None:
         check("... and the reply says so", res.ok and "relaxed" in res.message, f"got {res}")
 
         async def walking_job():
-            await rig.ts.switch_to(WALKING_CONTROLLER)
+            await rig.ts.switch_to(LOCOMOTION_CONTROLLER)
             await rig.ts.sleep(5.0)
             return robot_api.Result(True, "walked")
 
-        await rig.ts.queue("walk", walking_job, 5.0)
+        await rig.ts.queue("walk", walking_job, 5.0, then=LOCOMOTION)
         t0 = rig.clock.now
         while rig.clock.now < t0 + 6.0:  # standing up (4.2 s), then walking
             await _real_sleep(0)
         res = await tools.call(rig.ts, "stop", {})
         await rig.settle()
-        check("stop during a walk just stands still: the walking policy keeps the legs",
-              WALKING_CONTROLLER in rig.robot.active() and "relaxed" not in res.message, f"got {res}")
+        check("stop during a walk just stands still: the locomotion policy keeps the legs",
+              LOCOMOTION_CONTROLLER in rig.robot.active() and "relaxed" not in res.message, f"got {res}")
 
         await rig.ts.queue("trick hold_pose", lambda: behaviors.play_policy_trick(rig.ts, hold), hold.total_time,
-                           then_holding=hold)
+                           then=hold)
         await rig.settle()
         res = await tools.call(rig.ts, "stop", {})
         await rig.settle()
         check("stop while a trick only holds its pose leaves it holding (nothing is moving)",
               hold.controller in rig.robot.active() and "relaxed" not in res.message, f"got {res}")
+    finally:
+        rig.close()
+
+    # stop is immediate and clears everything, even requests still being handled.
+    rig = Rig()
+    try:
+        bow = rig.ts.tricks["bow"]
+
+        async def long_walk():
+            await rig.ts.switch_to(LOCOMOTION_CONTROLLER)
+            while True:
+                rig.ts.send_speed(0.4, 0, 0)
+                await rig.ts.sleep(0.05)
+
+        await rig.ts.queue("walk", long_walk, 10.0, then=LOCOMOTION)
+        await rig.ts.queue("trick bow", lambda: behaviors.play_policy_trick(rig.ts, bow), bow.total_time, then=LOCOMOTION)
+        t0 = rig.clock.now
+        for _ in range(100000):  # walking for a second
+            if rig.clock.now >= t0 + 1.0:
+                break
+            await _real_sleep(0)
+        rig.robot.published.clear()
+        n_switches, t_stop = len(rig.robot.switches), rig.clock.now
+        res = await tools.call(rig.ts, "stop", {})
+        sent = rig.robot.twists()
+        check("stop sends a zero speed at once, before anything else",
+              bool(sent) and sent[0][0] == t_stop and sent[0][1].linear.x == 0.0,
+              f"first speeds sent: {[(round(t - t_stop, 2), m.linear.x) for t, m in sent[:3]]}")
+        check("... and empties the queue right away (the running job is cancelled)",
+              rig.ts.commands.empty() and (rig.ts.current is None or rig.ts.current.done()),
+              f"queued: {rig.ts.commands.qsize()}; running: {rig.ts.current}")
+        await rig.settle()
+        later = [sw for sw in rig.robot.switches[n_switches:] if bow.controller in str(sw)]
+        check("... so nothing that was queued behind runs (the bow never plays)", not later, f"switches: {later}")
+        check("... and the walk's speeds stop", all(m.linear.x == 0.0 for _, m in rig.robot.twists()),
+              f"speeds after the stop: {sorted({m.linear.x for _, m in rig.robot.twists()})}")
+
+        # follow(true) waits while the legs switch; a stop in that time wins.
+        await behaviors.lie_down(rig.ts)
+        await rig.settle()
+        follow = asyncio.ensure_future(tools.call(rig.ts, "follow", {"enabled": True}))
+        t0 = rig.clock.now
+        while rig.clock.now < t0 + 1.0 and not follow.done():  # still standing up (4.2 s)
+            await _real_sleep(0)
+        if follow.done() and unwritten(follow.result()):
+            skip(f"the follow-and-stop check needs {unwritten(follow.result())} first")
+        else:
+            await tools.call(rig.ts, "stop", {})
+            await rig.settle()
+            res = await follow
+            check("a stop while follow mode is starting: it doesn't start", not rig.ts.following and not res.ok,
+                  f"following: {rig.ts.following}; follow said: {res}")
+
+        # A request still in its *now* part when the stop came in doesn't queue its job.
+        token = robot_api.CALL_STOPS.set(rig.ts.stops)
+        try:
+            await rig.ts.immediate_stop()
+            res = await behaviors.stand_up(rig.ts)
+        finally:
+            robot_api.CALL_STOPS.reset(token)
+        check("a request that began before a stop doesn't queue anything after it",
+              not res.ok and rig.ts.commands.empty(), f"got {res}; queued: {rig.ts.commands.qsize()}")
+    finally:
+        rig.close()
+
+    # A trick that walks in its own stance (the spider): its clips, then its walking policy.
+    def creep_tricks() -> dict[str, Trick]:
+        tricks = fixture_tricks()
+        tricks["creep"] = Trick(
+            name="creep", description="Crouches low and creeps.", kind="policy", path=Path("creep.json"),
+            duration=8.0, end_pose="crouched",
+            clips=[_clip("down", 0, 200, next="idle"), _clip("idle", 199, 250, loop=True), _clip("up", 249, 450)],
+            actions={"up": "Stands back up."}, exit_clip="up",
+            walk_path=Path("creep_walk.json"), walk_limits=(0.15, 0.1, 34.4),
+        )
+        return tricks
+
+    rig = Rig(tricks=creep_tricks)
+    try:
+        creep = rig.ts.tricks["creep"]
+        res = await behaviors.play_policy_trick(rig.ts, creep)
+        check("a walking trick: its clips play, then its walking policy takes the legs",
+              creep.walk_controller in rig.robot.active() and creep.controller not in rig.robot.active()
+              and rig.robot.start_clips.get(creep.controller) == [""] and rig.ts.state_now is creep,
+              f"active: {sorted(rig.robot.active())}; start_clips: {rig.robot.start_clips}; got {res}")
+        check("... and the outcome says it walks in its stance", res.ok and "walk" in res.message, f"got {res}")
+
+        rig.ts.state_after_queue = creep  # as play_trick's then= leaves it
+        rig.robot.published.clear()
+        res = await behaviors.walk(rig.ts, 0.3, 0.0, 0.0, 2.0)
+        await rig.settle()
+        sent = [m.linear.x for _, m in rig.robot.twists() if m.linear.x]
+        if unwritten(res):
+            skip(f"walking in the stance needs {unwritten(res)} first")
+        else:
+            check("move in the stance drives the trick's walking policy, slowed to its speeds, for longer",
+                creep.walk_controller in rig.robot.active() and sent and max(sent) <= 0.15 + 1e-6
+                and abs(len(sent) / LLM_CMD_RATE - 4.0) < 0.2 and rig.ts.state_now is creep,
+                f"active: {sorted(rig.robot.active())}; top speed {max(sent or [0]):.2f}; {len(sent) / LLM_CMD_RATE:.1f} s")
+            check("... and the reply says it is slower", res.ok and "slower" in res.message, f"got {res}")
+
+        await behaviors.stand_up(rig.ts)
+        await rig.settle()
+        check("standing up leaves through the exit clip: the trick's policy, started at it",
+              rig.robot.start_clips.get(creep.controller) == ["", "up"]
+              and rig.robot.activations(creep.controller)[-1] > rig.robot.deactivations(creep.walk_controller)[-1] - 1e-6
+              and LOCOMOTION_CONTROLLER in rig.robot.active() and rig.ts.state_now == LOCOMOTION,
+              f"start_clips: {rig.robot.start_clips}; active: {sorted(rig.robot.active())}; state {rig.ts.state_now}")
+
+        await behaviors.play_policy_trick(rig.ts, creep)
+        await rig.ts.emergency_stop()
+        check("the e-stop relaxes a trick's walking policy too", not (rig.robot.active() & rig.ts.leg_controllers),
+              f"active: {sorted(rig.robot.active())}")
     finally:
         rig.close()
 
@@ -1201,7 +1324,7 @@ async def provided() -> None:
     rig = Rig(no_clip_tricks)
     try:
         decls = {d["name"]: d for d in tools.declarations(rig.ts)}
-        check("trick_action is offered to Gemini even before a clip trick is installed", "trick_action" in decls,
+        check("trick_action is offered to Gemini even before an interactive trick is installed", "trick_action" in decls,
               f"declared: {sorted(decls)}")
         res = await tools.call(rig.ts, "trick_action", {"action": "shake_left"})
         check("... and says nothing is installed yet", not res.ok and "installed" in res.message, f"got {res}")
@@ -1222,7 +1345,7 @@ PARTS = {
     "part3": ["todo5", "todo6"],
     "part4": ["todo7", "todo8"],
     "part5": ["todo9", "todo10"],
-    "part6": ["todo11"],
+    "part7": ["todo11"],
 }
 
 

@@ -1,73 +1,76 @@
 """Part 5: Sit, Stay, Shake. TODO 9 (trick_action), then TODO 10 (what Gemini reads about it).
 
-A clip trick (part4_tricks.py explains them) holds a pose and takes requests:
-the shakes and the stand-up of sit_stay_shake are its *actions*, and they only
-make sense while the trick holds its pose. You train sit_stay_shake in the
+An interactive trick (part4_tricks.py explains them) is one Pupper stays in
+and that takes requests: the shakes and the stand-up of sit_stay_shake are its
+*actions*, and they only make sense while Pupper is in that trick. You train sit_stay_shake in the
 notebook and fetch it with robot/get_trick.py; until then, the tests use a
-made-up clip trick called hold_pose.
+made-up interactive trick called hold_pose.
 """
 
 from __future__ import annotations
 
-from robot_api import WALKING_CONTROLLER, Result, Robot, not_written  # noqa: F401
+from robot_api import LOCOMOTION, LOCOMOTION_CONTROLLER, Result, Robot, not_written  # noqa: F401
 from tool_registry import ACTION_IDS, Param, tool
 
 
 # ============================================================ what the robot does
 async def trick_action(robot: Robot, action: str) -> Result:
-    """Play one of a clip trick's actions (e.g. shake a paw while sitting).
+    """Play one of an interactive trick's actions (e.g. shake a paw while sitting).
 
     TODO 9 (Part 5) ------------------------------------------------------------
     Now:                 robot.action_ids() maps each action to (trick, clip). An
                          unknown action fails, listing the real ones. An action
-                         only works while its trick holds its pose: refuse unless
-                         robot.holding_after_queue is trick, and tell Gemini
-                         which trick to play first.
-    Later (the job):     check again that trick.controller is active (it may
-                         have fallen, been e-stopped or stopped since); play the
-                         clip with robot.play_clip. The exit clip ends standing:
-                         after it, robot.holding_now = None and the legs go back
-                         to the walking policy.
+                         only works in its trick's state: refuse unless
+                         robot.state_after_queue is trick, and tell Gemini which
+                         trick to play first.
+    Later (the job):     check again, about right now: robot.state_now is trick
+                         (Pupper may have fallen, been e-stopped or stopped
+                         since). Then play the clip with robot.play_clip. The
+                         exit clip is different: it leaves the trick, so instead
+                         hand the legs back with
+                         robot.switch_to(LOCOMOTION_CONTROLLER), which plays the
+                         exit clip on the way out.
     Gemini hears now:    robot.queue(f"{trick.name} {clip}", job,
-                         trick.clip_time_estimate(clip), then_holding=...):
-                         None after the exit clip, else trick.
+                         trick.clip_time_estimate(clip), then=...):
+                         LOCOMOTION after the exit clip, else trick.
     Why check twice:     "sit, then shake" said in one breath queues both before
-                         the sit has happened (holding_after_queue knows it
-                         will); a fall or a stop can still happen in between.
-    Use:                 robot.action_ids, robot.holding_after_queue,
-                         robot.is_active, robot.play_clip, robot.switch_to
+                         the sit has happened (state_after_queue knows it will);
+                         a fall or a stop can still happen in between (state_now
+                         knows when the job runs).
+    Use:                 robot.action_ids, robot.state_after_queue,
+                         robot.state_now, robot.play_clip, robot.switch_to
     Tests check:         - an unknown action fails, and the message lists the real ones.
                            Passes: "unknown trick action fetch_the_ball; available: ['wave_left', ...]"
-                         - an action while its trick isn't (going to be) holding fails
+                         - an action while Pupper isn't (going to be) in its trick fails
                            right away, names the trick, and queues nothing.
                            Passes: "wave_left only works while hold_pose is running;
                                     play it first (play_trick hold_pose)"
                            Fails:  "not sitting" (Gemini can't tell which trick to play)
-                         - while holding: the clip plays and the trick keeps holding
-                         - the exit clip: walking takes the legs back, holding_now is
-                           None, and later actions are refused (then_holding=None)
+                         - in the trick: the clip plays and Pupper stays in the trick
+                         - the exit clip: locomotion takes the legs back, and later
+                           actions are refused (then=LOCOMOTION)
                          - "sit, then shake" queued back to back plays both
-                           (the now-check must use holding_after_queue)
+                           (the now-check must use state_after_queue)
                          - if the trick was relaxed before the queue got there, the
-                           job refuses (the later check: robot.is_active)
+                           job refuses (the later check: robot.state_now)
     Test:                python3 lab/test.py todo9
     """
     # ========== TODO 9: YOUR CODE HERE ==========
     # NOW:
     # 1. found = robot.action_ids().get(action). If None: fail, listing list(robot.action_ids()).
     # 2. trick, clip = found
-    # 3. If robot.holding_after_queue is not trick: fail, and say which trick to play first
+    # 3. If robot.state_after_queue is not trick: fail, and say which trick to play first
     #    (e.g. f"... play it first (play_trick {trick.name})").
     # THE JOB:
     # 4. async def job() -> Result:
-    #        a. If not await robot.is_active(trick.controller): fail, saying which trick must run first.
-    #        b. res = await robot.play_clip(trick, clip)
-    #        c. If res failed, or clip is not the exit clip (trick.exit_clip): return res.
-    #        d. It was the exit clip (the robot is standing again): robot.holding_now = None,
-    #           then res = await robot.switch_to(WALKING_CONTROLLER), and report how that went.
+    #        a. If robot.state_now is not trick: fail, saying which trick must run first.
+    #        b. The exit clip (clip == trick.exit_clip) leaves the trick:
+    #           res = await robot.switch_to(LOCOMOTION_CONTROLLER) (it plays the exit clip first),
+    #           then report how that went.
+    #        c. Any other clip: return await robot.play_clip(trick, clip)
     # QUEUE IT:
     # 5. return await robot.queue(f"{trick.name} {clip}", job, trick.clip_time_estimate(clip),
-    #                              then_holding=...)   None after the exit clip, else trick.
+    #                              then=...)   LOCOMOTION after the exit clip, else trick.
     return not_written("TODO 9", "trick_action in lab/part5_sit_stay_shake.py")
     # ====================================
 

@@ -8,6 +8,11 @@ command to run here. The Pupper is already logged into W&B for policy deploys.
     python3 robot/get_trick.py <entity>/mjlab/<run-id> --name sit
     python3 robot/get_trick.py mjlab/<run-id> --name sit          # your default entity
 
+A trick that walks in its own stance (the spider) has two policies: its clips
+(a trick run) and its walking policy (a Mjlab-SpiderWalk run). Fetch both at once:
+
+    python3 robot/get_trick.py <clip-trick-run> --walk <spider-walk-run> --name spider_walk
+
 The trick lands as tricks/<name>/policy.json. Every trick on the robot is a
 policy: check a design in simulation (pupper-mjlab's play_motion) before
 training it, not by replaying it open loop on the robot.
@@ -71,7 +76,27 @@ def fetch_policy(run_path: str, dest: Path) -> dict:
   return policy
 
 
-def write_template(dest: Path, name: str, policy: dict) -> None:
+def fetch_walk_policy(run_path: str, dest: Path) -> None:
+  """A walking trick's walking policy (a velocity policy, not a trick) -> walk_policy.json."""
+  import wandb
+
+  run = wandb.Api().run(run_path)
+  if "policy.json" not in [f.name for f in run.files()]:
+    sys.exit(f"{run_path} has no policy.json yet; wait for the run to save a checkpoint.")
+  with tempfile.TemporaryDirectory() as tmp:
+    path = Path(run.file("policy.json").download(root=tmp, replace=True).name)
+    if "trick" in json.loads(path.read_text()):
+      sys.exit(f"{run_path} is a trick run; --walk takes the walking policy's run (Mjlab-SpiderWalk).")
+    if VALIDATOR.exists():
+      check = subprocess.run([sys.executable, str(VALIDATOR), "--validate-only", str(path)])
+      if check.returncode != 0:
+        sys.exit("validation failed; not installing")
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, dest / "walk_policy.json")
+  print(f"Run {run.name} ({run_path}) -> {dest / 'walk_policy.json'}")
+
+
+def write_template(dest: Path, name: str, policy: dict, walks: bool = False) -> None:
   spec = dest / "trick.yaml"
   if spec.exists():
     print(f"Kept the existing {spec}")
@@ -92,6 +117,8 @@ def write_template(dest: Path, name: str, policy: dict) -> None:
     ]
     lines += [f"#   {c['name']}: TODO what this clip does" for c in clips]
     lines += ["# exit_clip: <clip>", "# end_pose: <the pose the looping clip holds>"]
+  if walks:
+    lines += ["walk_policy: walk_policy.json   # it walks in its stance: move, turn and arc drive this"]
   spec.write_text("\n".join(lines) + "\n")
   print(f"Wrote a template {spec}; edit its description.")
 
@@ -102,6 +129,7 @@ def main() -> None:
   parser.add_argument("--name", required=True, help="trick name: the folder under tricks/ and Gemini's id")
   parser.add_argument("--project", default="mjlab")
   parser.add_argument("--entity", default=None)
+  parser.add_argument("--walk", default=None, help="a walking policy's run (Mjlab-SpiderWalk), for a trick that walks")
   args = parser.parse_args()
 
   dest = TRICK_DIR / args.name
@@ -111,7 +139,9 @@ def main() -> None:
   for c in trick.get("clips", []):
     print(f"  clip {c['name']:14} {(c['end'] - c['start']) / trick['fps']:.1f} s"
           f"{' loops' if c.get('loop') else ''}{' -> ' + str(c['next']) if c.get('next') is not None else ''}")
-  write_template(dest, args.name, policy)
+  if args.walk:
+    fetch_walk_policy(resolve_run_path(args.walk, args.project, args.entity), dest)
+  write_template(dest, args.name, policy, walks=bool(args.walk))
   print("Restart Gemini Pupper (robot/stop.sh, then robot/start.sh) to load it.")
 
 

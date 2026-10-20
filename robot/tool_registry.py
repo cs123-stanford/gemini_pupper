@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from robot_api import Result, Robot
+from robot_api import CALL_STOPS, Result, Robot
 
 log = logging.getLogger("tools")
 
@@ -167,8 +167,11 @@ async def call(robot: Robot, name: str, args: dict) -> Result:
             return Result(False, f"{name}: nothing is installed for {pname} yet, so it can't be used")
         if enum is not None and v not in enum:
             return Result(False, f"{name}: {pname} must be one of {list(enum)}, not {v!r}")
+    token = CALL_STOPS.set(robot.stops)  # a stop after this point cancels what this call would queue
     try:
         return await t.run(robot, **args)
     except Exception as e:  # a bug in a tool must not crash the server
         log.exception("tool %s failed", name)
         return Result(False, f"{name} failed on the robot: {type(e).__name__}: {e}")
+    finally:
+        CALL_STOPS.reset(token)

@@ -12,11 +12,11 @@ from __future__ import annotations
 import math
 
 from basics import ENDS_FOLLOW
-from part3_follow import leave_follow_mode
-from robot_api import FELL_MESSAGE, LIMITS, LLM_CMD_RATE, WALKING_CONTROLLER, MoveLimits, Result, Robot, not_written, with_note  # noqa: F401
+from part3_follow import prepare_to_move
+from robot_api import FELL_MESSAGE, LIMITS, LLM_CMD_RATE, LOCOMOTION, LOCOMOTION_CONTROLLER, MoveLimits, Result, Robot, not_written, with_note  # noqa: F401
 from tool_registry import Param, tool
 
-# "Run" means at least this fast, in m/s (the walking policy switches to its
+# "Run" means at least this fast, in m/s (the locomotion policy switches to its
 # running gait above about 0.5 m/s).
 RUN_MIN_SPEED = 1.0
 RUN_DEFAULT_SPEED = 1.2
@@ -69,7 +69,7 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
     move tools (TODO 3) call this. It is stand_up's shape (basics.py), with a
     loop in the job. Two things to notice:
 
-    - Why send the speed again and again? The walking policy doesn't take
+    - Why send the speed again and again? The locomotion policy doesn't take
       "walk for 2 seconds"; it takes a speed, over and over. In between sits
       cmd_vel_mux (the node that lets the joystick win over Gemini), and it
       forgets a speed it hasn't heard for 0.5 s, so a crashed program can't
@@ -78,19 +78,28 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
     - Why check robot.fallen three times? The robot may already have fallen when
       Gemini asks (1), may fall while this job waits in line (2), or while it
       walks (3). Each time, Gemini should hear FELL_MESSAGE, not "moved".
+    - Who walks? Usually the locomotion policy. But in a trick that walks in its
+      own stance (the spider, Part 6), its own walking policy does, slowly: the
+      move is slowed to what that policy was trained for, and lasts longer so it
+      still goes as far. Which one it is depends on the state Pupper will be in
+      when the job runs: robot.state_after_queue, the same now-question as Part 5.
     """
     # NOW, before anything is queued:
     refused = check_move(vx, vy, wz_deg, duration)  # your TODO 2: is this move allowed?
     if refused:
         return Result(False, refused)  # Gemini hears why; nothing is queued
-    note = await leave_follow_mode(robot)  # your TODO 5: any motion ends follow mode
+    note = await prepare_to_move(robot)  # your TODO 5: any motion ends follow mode
+    state = robot.state_after_queue  # where Pupper will be when this job runs
+    walker = robot.walking_controller(state)  # the locomotion policy, or a walking trick's own
+    vx, vy, wz_deg, duration, slower = robot.slow_to(state, vx, vy, wz_deg, duration)
+    then = state if walker != LOCOMOTION_CONTROLLER else LOCOMOTION  # a walking trick stays in its stance
     if robot.fallen:  # (1)
         return Result(False, FELL_MESSAGE)
 
     async def job() -> Result:  # LATER, when the queue gets to it
         if robot.fallen:  # (2)
             return Result(False, FELL_MESSAGE)
-        res = await robot.switch_to(WALKING_CONTROLLER)  # the walking policy takes the legs
+        res = await robot.switch_to(walker)  # the policy that walks takes the legs (if it hasn't already)
         if not res.ok:
             return res
         end = robot.now() + duration
@@ -105,7 +114,7 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
 
     # What Gemini hears NOW: the job was accepted.
     what = f"vx={vx:g} vy={vy:g} wz={wz_deg:.3g}"  # 45.836623610465864 -> 45.8: Gemini reads this
-    return with_note(note, await robot.queue(f"move {what} {duration:.3g}s", job, duration))
+    return with_note(f"{note} {slower}", await robot.queue(f"move {what} {duration:.3g}s", job, duration, then=then))
 
 
 # ============================================================ what Gemini reads
@@ -171,7 +180,7 @@ async def move_tool(
     #        left:    vx = 0, vy = +speed      right:    vx = 0, vy = -speed
     # 3. If Gemini asked to run sideways, you walk instead: say so, or Gemini will
     #    tell the person it's running. Start the reply with a note:
-    #      note = "Sideways never runs; walking instead. " (or "" otherwise)
+    #      note = "Sideways never runs; walking instead." (or "" otherwise)
     #      return with_note(note, await walk(robot, vx, vy, 0.0, duration))
     # Examples: move("forward") -> vx 0.4 | move("backward", run=True) -> vx -1.2 |
     #   move("forward", run=True, speed=0.6) -> vx 1.0 | move("right", run=True) -> vy -0.4
@@ -241,7 +250,7 @@ async def arc_tool(
     #    saying which, and what works: "radius must be 0 m or more".
     #    Radius 0 is a sharp corner: turn in place like your turn tool (+-TURN_SPEED,
     #    for abs(angle) / TURN_SPEED s), and say so in front of walk's reply:
-    #      return with_note("Radius 0: turned in place (a sharp corner). ", await walk(...))
+    #      return with_note("Radius 0: turned in place (a sharp corner).", await walk(...))
     # 2. Too tight: if math.degrees(speed / radius) > LIMITS.wz_max, return a failure
     #    with the smallest radius that works: speed / math.radians(LIMITS.wz_max).
     #    (check_move would refuse it too, but "|wz|<=114.0" doesn't tell Gemini that

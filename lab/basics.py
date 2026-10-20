@@ -9,13 +9,17 @@ Every lab/ file has the same two halves:
           (1) NOW: check what can be checked right away; refuse with a reason
           async def job():
               (2) LATER, when the queue gets here: check again, act, report the outcome
-          (3) return await robot.queue(name, job, seconds)   # what Gemini hears now
+          (3) return await robot.queue(name, job, seconds, then=state)   # what Gemini hears now
+
+      then= is the state Pupper is in once the job is done: LOCOMOTION,
+      MOTORS_IDLE, or a trick. It becomes robot.state_after_queue, so a request
+      made now knows the state it will start from.
 
   WHAT GEMINI READS (a tool): an @tool(...) line with the tool's name, a
   description, and a description of each parameter. Gemini decides when to
   call a tool, and what to pass, from these words alone. The function under it
   turns Gemini's words into numbers and calls a behavior. Whatever it returns
-  (a Result) goes back to Gemini: it is all Gemini learns about what happened.
+  (a Result) goes back to Gemini: it is how Gemini gets feedback on what happened.
 
 Why a queue? Gemini often asks for several things in one breath ("sit, then
 shake"). The queue runs them one at a time, in order, while Gemini keeps
@@ -33,8 +37,8 @@ python3 lab/chat.py, then restart (robot/stop.sh && robot/start.sh).
 
 from __future__ import annotations
 
-from part3_follow import leave_follow_mode
-from robot_api import WALK_READY_S, WALKING_CONTROLLER, Result, Robot, with_note
+from part3_follow import prepare_to_move
+from robot_api import LOCOMOTION, LOCOMOTION_CONTROLLER, MOTORS_IDLE, WALK_READY_S, Result, Robot, with_note
 from tool_registry import tool
 
 # Added to the description of every tool that ends follow mode (Part 3).
@@ -46,27 +50,27 @@ ENDS_FOLLOW = (
 
 # ============================================================ what the robot does
 async def stand_up(robot: Robot) -> Result:
-    """Stand up on the walking policy (also: stand up after a trick)."""
-    note = await leave_follow_mode(robot)  # (1) now: any motion ends follow mode (TODO 5)
+    """Stand up in locomotion mode (also: stand up after a trick)."""
+    note = await prepare_to_move(robot)  # (1) now: any motion ends follow mode (TODO 5)
 
-    async def job() -> Result:  # (2) later: give the legs to the walking policy
-        return await robot.switch_to(WALKING_CONTROLLER)
+    async def job() -> Result:  # (2) later: give the legs to the locomotion policy
+        return await robot.switch_to(LOCOMOTION_CONTROLLER)
 
-    return with_note(note, await robot.queue("activate walking", job, WALK_READY_S))  # (3)
+    return with_note(note, await robot.queue("stand up", job, WALK_READY_S, then=LOCOMOTION))  # (3)
 
 
 async def lie_down(robot: Robot) -> Result:
     """Relax every motor, so the robot lies down."""
-    note = await leave_follow_mode(robot)
+    note = await prepare_to_move(robot)
 
     async def job() -> Result:
         return await robot.switch_to(None)  # None: no controller holds the legs
 
-    return with_note(note, await robot.queue("deactivate", job, 1.0))
+    return with_note(note, await robot.queue("lie down", job, 1.0, then=MOTORS_IDLE))
 
 
 # ============================================================ what Gemini reads
-@tool("stand_up", "Stand up and turn on walking. Needed before moving, and to stand up after a trick." + ENDS_FOLLOW)
+@tool("stand_up", "Stand up, ready to walk. Needed before moving, and to stand up after a trick." + ENDS_FOLLOW)
 async def stand_up_tool(robot: Robot) -> Result:
     return await stand_up(robot)
 
@@ -90,6 +94,6 @@ async def stop_tool(robot: Robot) -> Result:
     return await robot.immediate_stop(relax_playing_trick=True)
 
 
-@tool("robot_status", "Check what the robot is doing right now: walking, in a trick, following, motors off, or fallen over.")
+@tool("robot_status", "Check what the robot is doing right now: walking (maybe following someone), in a trick, lying down with its motors idle, or fallen over.")
 async def robot_status_tool(robot: Robot) -> Result:
     return await robot.mode()

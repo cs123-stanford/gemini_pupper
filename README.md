@@ -104,8 +104,8 @@ python3 lab/chat.py --robot    # your tools on the real Pupper (through the robo
 
 ## Tricks
 
-Every trick is a policy, so the robot is always in one simple state: walking,
-one trick, or motors off. Each folder under `tricks/` with a `trick.yaml` is a
+Every trick is a policy, so the robot is always in one simple state: locomotion,
+one trick (trick mode), motors idle, or fallen. Each folder under `tricks/` with a `trick.yaml` is a
 trick Gemini can play (`robot/tricks.py` lists the fields). Tricks are trained
 in [pupper-mjlab](https://github.com/cs123-stanford/pupper-mjlab); training
 puts the policy on W&B, and one command fetches it:
@@ -115,9 +115,10 @@ python3 robot/get_trick.py <entity>/mjlab/<run-id> --name my_trick
 robot/stop.sh && robot/start.sh
 ```
 
-A clip trick holds a pose and takes requests: `actions` in its `trick.yaml`
-lists the clips Gemini may ask for (with the `trick_action` tool), and
-`exit_clip` is the clip that stands back up.
+A playback trick plays one reference motion from start to finish. An
+interactive trick is one Pupper stays in and that takes requests: `actions` in
+its `trick.yaml` lists the clips Gemini may ask for (with the `trick_action`
+tool), and `exit_clip` is the clip that stands back up.
 
 ## More
 

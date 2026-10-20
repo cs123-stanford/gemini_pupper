@@ -1,4 +1,4 @@
-# A reference trick: the running walking policy (the default policy, loaded as the
+# A reference trick: the running locomotion policy (the default policy, loaded as the
 # gemini_walk controller) is fed this joint-offset reference once, the same way the
 # joystick's game mode triggers its jump. Only policies trained with this reference
 # can follow it; the default policy was trained with this jump.

@@ -7,3 +7,4 @@ policy: policy.json
 start_pose: standing
 end_pose: lying
 max_body_angle_deg: 60   # the reference tilts up to 10 degrees
+replaced_by: spider_walk   # spider_walk (Part 6) lies down like this, then walks in the stance

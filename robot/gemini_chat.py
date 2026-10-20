@@ -95,7 +95,7 @@ class DeskBackend:
             if topic.endswith("/clip"):
                 lines.append(f"clip: {topic.split('/')[1]} plays {m.data}")
             elif topic.endswith("/reference_trick"):
-                lines.append("reference: sent to the walking policy")
+                lines.append("reference: sent to the locomotion policy")
         for call in robot.follow_calls[self.seen_follow:]:
             lines.append(f"person follower: {call}")
         for rec in self.rig.records[self.seen_log:]:

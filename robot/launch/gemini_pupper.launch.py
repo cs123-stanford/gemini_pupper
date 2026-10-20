@@ -30,7 +30,7 @@ HERE = Path(__file__).resolve().parent
 PARAMS = str(HERE / "gemini_pupper.yaml")
 sys.path.insert(0, str(HERE.parent))
 from spawn_controllers import PARAM_FILE as TRICK_PARAMS  # noqa: E402
-from tricks import WALK_CONTROLLER, controller_params, load_tricks, walk_controller_params  # noqa: E402
+from tricks import WALK_CONTROLLER, controller_params, load_tricks, walk_controller_params, walk_policy_params  # noqa: E402
 
 COURSE_CONFIG = PathJoinSubstitution([FindPackageShare("neural_controller"), "launch", "config.yaml"])
 
@@ -49,6 +49,8 @@ def gemini_controllers():
     tricks = [t for t in load_tricks().values() if t.kind == "policy"]
     for t in tricks:
         params[t.controller] = {"ros__parameters": {**kind, **controller_params(t, base)}}
+        if t.walks:  # a trick that walks in its own stance: its walking policy too
+            params[t.walk_controller] = {"ros__parameters": {**kind, **walk_policy_params(t, base)}}
     # The course config writes paths as $(find-pkg-share pkg)/...; the spawner's
     # parameter file isn't substituted, so expand them here.
     for entry in params.values():

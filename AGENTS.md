@@ -32,10 +32,11 @@ one TODO at a time, and run its test group: `python3 lab/test.py todo3`.
 | --- | --- |
 | `prompt.md`: TODO 1, 6 (its Follow mode section), 11 | `lab/basics.py`, and the finished functions in the part files (`walk`, `play_policy_trick`): students read and explain them, they don't write them |
 | `part2_walk.py`: TODO 2 (`check_move`), 3 (the `turn` and `move` tools), 4 (the `arc` tool) | `robot/`: the Robot API (`robot_api.py`), the tool registry, the robot server, the tests, the chat, the launch files and scripts |
-| `part3_follow.py`: TODO 5 (`leave_follow_mode`), 6 (the `follow` tool) | `web/`: the web app (TypeScript); students don't need to touch it |
+| `part3_follow.py`: TODO 5 (`prepare_to_move`), 6 (the `follow` tool) | `web/`: the web app (TypeScript); students don't need to touch it |
 | `part4_tricks.py`: TODO 7 (`play_trick`), 8 (its words) | `robot/tricks.py`, `robot/get_trick.py` |
 | `part5_sit_stay_shake.py`: TODO 9 (`trick_action`), 10 (its words, and `tricks/sit_stay_shake/trick.yaml`) | |
 | In pupper-mjlab: the Sit_Stay_Shake notebook (or `tricks/sit_stay_shake.py`): `cut`, `hold`, `mirror`, the clips and `ORDER` | The rest of pupper-mjlab |
+| In pupper-mjlab (Part 6): the Spider notebook (or `tricks/spider.py`): `reverse`, the clips and `ORDER`; the spider walk's reward weights; then `tricks/spider_walk/trick.yaml` | |
 
 If a provided file looks wrong, tell the student and let them ask a TA; don't
 patch infrastructure to make a symptom go away.
@@ -67,7 +68,7 @@ patch infrastructure to make a symptom go away.
 
 ## How to check work without the robot
 
-- `python3 lab/test.py` (or `todo1` ... `todo11`, `part1` ... `part6`,
+- `python3 lab/test.py` (or `todo1` ... `todo11`, `part1` ... `part7`,
   `robot`): tests with a fake robot. Run them after every change in `lab/`.
   They check what the tools do, not how they are written.
 - `python3 lab/chat.py`: talk to Gemini in text with the student's own prompt
@@ -75,6 +76,7 @@ patch infrastructure to make a symptom go away.
   reply Gemini hears, and what the fake robot did. Never `--robot` without
   the student's OK (see the safety rules).
 - In pupper-mjlab: `uv run python -m mjlab.tasks.tracking.config.pupper.tricks.sit_stay_shake`
+- In pupper-mjlab (Part 6): `uv run python -m mjlab.tasks.tracking.config.pupper.tricks.spider`
   checks `cut`, `hold` and `mirror` and builds the library;
   `uv run python -m mjlab.tasks.tracking.config.pupper.play_motion <motion>.npz`
   replays it with physics (add `--checkpoint` to score a trained policy).
