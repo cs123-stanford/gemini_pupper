@@ -26,7 +26,7 @@ gemini_pupper/
 │   ├── part2_walk.py            check_move, the turn and move tools, arc  TODO 2, 3, 4
 │   ├── part3_follow.py          the follow rule, then the follow tool     TODO 5, 6
 │   ├── part4_tricks.py          play_trick, then its words                TODO 7, 8
-│   ├── part5_sit_stay_shake.py  trick_action, then its words              TODO 9, 10
+│   ├── part5_sit_stay_shake.py  interactive_action, then its words              TODO 9, 10
 │   ├── test.py                  python3 lab/test.py todo3   (tests with a fake robot)
 │   └── chat.py                  python3 lab/chat.py         (talk to Gemini in text)
 ├── tricks/                      one folder per trick; sit_stay_shake lands here in Part 5
@@ -117,7 +117,7 @@ robot/stop.sh && robot/start.sh
 
 A playback trick plays one reference motion from start to finish. An
 interactive trick is one Pupper stays in and that takes requests: `actions` in
-its `trick.yaml` lists the clips Gemini may ask for (with the `trick_action`
+its `trick.yaml` lists the clips Gemini may ask for (with the `interactive_action`
 tool), and `exit_clip` is the clip that stands back up.
 
 ## More

@@ -543,7 +543,7 @@ class Robot:
 
     # ---------------------------------------------------------------- tricks
     def action_ids(self) -> dict[str, tuple[Trick, str]]:
-        """Trick action ids Gemini uses -> (trick, clip). A clip name, prefixed with the
+        """Interactive action ids Gemini uses -> (trick, clip). A clip name, prefixed with the
         trick's name only when two tricks share it."""
         pairs = [(t, clip) for t in self.tricks.values() for clip in t.actions]
         names = [clip for _, clip in pairs]

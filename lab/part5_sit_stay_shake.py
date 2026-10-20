@@ -1,4 +1,4 @@
-"""Part 5: Sit, Stay, Shake. TODO 9 (trick_action), then TODO 10 (what Gemini reads about it).
+"""Part 5: Sit, Stay, Shake. TODO 9 (interactive_action), then TODO 10 (what Gemini reads about it).
 
 An interactive trick (part4_tricks.py explains them) is one Pupper stays in
 and that takes requests: the shakes and the stand-up of sit_stay_shake are its
@@ -14,7 +14,7 @@ from tool_registry import ACTION_IDS, Param, tool
 
 
 # ============================================================ what the robot does
-async def trick_action(robot: Robot, action: str) -> Result:
+async def interactive_action(robot: Robot, action: str) -> Result:
     """Play one of an interactive trick's actions (e.g. shake a paw while sitting).
 
     TODO 9 (Part 5) ------------------------------------------------------------
@@ -40,7 +40,7 @@ async def trick_action(robot: Robot, action: str) -> Result:
     Use:                 robot.action_ids, robot.state_after_queue,
                          robot.state_now, robot.play_clip, robot.switch_to
     Tests check:         - an unknown action fails, and the message lists the real ones.
-                           Passes: "unknown trick action fetch_the_ball; available: ['wave_left', ...]"
+                           Passes: "unknown interactive action fetch_the_ball; available: ['wave_left', ...]"
                          - an action while Pupper isn't (going to be) in its trick fails
                            right away, names the trick, and queues nothing.
                            Passes: "wave_left only works while hold_pose is running;
@@ -71,13 +71,13 @@ async def trick_action(robot: Robot, action: str) -> Result:
     # QUEUE IT:
     # 5. return await robot.queue(f"{trick.name} {clip}", job, trick.clip_time_estimate(clip),
     #                              then=...)   LOCOMOTION after the exit clip, else trick.
-    return not_written("TODO 9", "trick_action in lab/part5_sit_stay_shake.py")
+    return not_written("TODO 9", "interactive_action in lab/part5_sit_stay_shake.py")
     # ====================================
 
 
 # ============================================================ what Gemini reads
-# TODO 10: describe trick_action for Gemini, and write its body (it calls
-# trick_action above). {actions} in a description becomes the list of installed
+# TODO 10: describe interactive_action for Gemini, and write its body (it calls
+# interactive_action above). {actions} in a description becomes the list of installed
 # actions, each with its trick and its description from trick.yaml. Say what has
 # to happen first, and what ends it. (Also TODO 10: the words in
 # tricks/sit_stay_shake/trick.yaml, once you have fetched your policy.)
@@ -91,11 +91,11 @@ async def trick_action(robot: Robot, action: str) -> Result:
 #   Test: python3 lab/test.py todo10
 # ========== TODO 10: YOUR CODE HERE ==========
 @tool(
-    "trick_action",
-    "TODO 10: describe trick_action for Gemini. Actions:\n{actions}",
+    "interactive_action",
+    "TODO 10: describe interactive_action for Gemini. Actions:\n{actions}",
     action=Param("string", "TODO 10", enum=ACTION_IDS),
 )
-async def trick_action_tool(robot: Robot, action: str) -> Result:
-    # One line: call trick_action(robot, action) (your TODO 9), await it, and return it.
-    return not_written("TODO 10", "trick_action in lab/part5_sit_stay_shake.py")
+async def interactive_action_tool(robot: Robot, action: str) -> Result:
+    # One line: call interactive_action(robot, action) (your TODO 9), await it, and return it.
+    return not_written("TODO 10", "interactive_action in lab/part5_sit_stay_shake.py")
 # =====================================

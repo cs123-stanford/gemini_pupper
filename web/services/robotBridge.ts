@@ -119,12 +119,12 @@ class RobotBridge {
     return this.request('/queue/status', 'GET');
   }
 
-  async trickAction(action: string) {
-    return this.request('/trick_action', 'POST', { action });
+  async interactiveAction(action: string) {
+    return this.request('/interactive_action', 'POST', { action });
   }
 
-  async getTrickActions() {
-    return this.request('/trick_actions', 'GET');
+  async getInteractiveActions() {
+    return this.request('/interactive_actions', 'GET');
   }
 
   async getAnimations() {

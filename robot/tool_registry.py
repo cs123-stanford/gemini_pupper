@@ -13,7 +13,7 @@ can be called anything (in lab/ it is the name plus _tool, so it doesn't clash
 with the behavior of the same name).
 
 A description may contain {tricks} or {actions}: the installed tricks, or the
-installed trick actions, one per line. A parameter's enum (the values Gemini
+installed interactive actions, one per line. A parameter's enum (the values Gemini
 may pass) may be TRICK_NAMES or ACTION_IDS for the same lists.
 
 The web app asks the robot server for the declarations (GET /tools) when it
@@ -97,7 +97,7 @@ def TRICK_NAMES(robot: Robot) -> list:
 
 
 def ACTION_IDS(robot: Robot) -> list:
-    """enum: the installed trick actions."""
+    """enum: the installed interactive actions."""
     return list(robot.action_ids())
 
 

@@ -183,13 +183,13 @@ async def animation(req: Trick):
     return (await behaviors.play_trick(T(), req.animation_name)).as_dict()
 
 
-@app.post("/trick_action")
-async def trick_action(req: TrickAction):
-    return (await behaviors.trick_action(T(), req.action)).as_dict()
+@app.post("/interactive_action")
+async def interactive_action(req: TrickAction):
+    return (await behaviors.interactive_action(T(), req.action)).as_dict()
 
 
-@app.get("/trick_actions")
-def trick_actions():
+@app.get("/interactive_actions")
+def interactive_actions():
     """Actions of interactive tricks (e.g. shake a paw while sitting): id -> trick and description."""
     return {aid: {"trick": t.name, "description": t.actions[clip]} for aid, (t, clip) in T().action_ids().items()}
 

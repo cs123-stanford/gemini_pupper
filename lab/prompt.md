@@ -45,7 +45,7 @@ motion ends it.
 # Tricks
 
 TODO 11: Tricks start standing or lying down, and keep their final pose. How
-should Pupper use play_trick and trick_action? What if someone asks for
+should Pupper use play_trick and interactive_action? What if someone asks for
 several things in a row? And for a trick Pupper doesn't have?
 
 # Safety

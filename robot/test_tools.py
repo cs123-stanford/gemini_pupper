@@ -853,7 +853,7 @@ async def todo7() -> None:
         out = " ".join(rig.outcomes(start))
         check("... and the outcome lists its actions and its exit clip", "wave_left" in out and "leave" in out,
               f"log: {rig.outcomes(start)}",
-              passes='"played hold_pose; it now stays ... Trick actions: wave_left, wave_right. Any other motion first plays leave."')
+              passes='"played hold_pose; it now stays ... Interactive actions: wave_left, wave_right. Any other motion first plays leave."')
         n_switches = len(rig.robot.switches)
         start = len(rig.records)
         await behaviors.play_trick(rig.ts, "hold_pose")
@@ -920,14 +920,14 @@ async def optional_jump() -> None:
 
 # ----------------------------------------------------------------------------- Part 5
 async def todo9() -> None:
-    print("TODO 9: trick actions (the fake interactive trick 'hold_pose': wave_left, wave_right, leave)")
+    print("TODO 9: interactive actions (the fake interactive trick 'hold_pose': wave_left, wave_right, leave)")
     rig = Rig()
     try:
         ctrl = rig.ts.tricks["hold_pose"].controller
-        res = await behaviors.trick_action(rig.ts, "wave_left")
+        res = await behaviors.interactive_action(rig.ts, "wave_left")
         await rig.settle()
         if unwritten(res):
-            skip("TODO 9 (trick_action) is not written yet")
+            skip("TODO 9 (interactive_action) is not written yet")
             return
         probe = await behaviors.play_trick(rig.ts, "bow")
         await rig.settle()
@@ -936,18 +936,18 @@ async def todo9() -> None:
             return
 
         start = len(rig.records)
-        res = await behaviors.trick_action(rig.ts, "fetch_the_ball")
+        res = await behaviors.interactive_action(rig.ts, "fetch_the_ball")
         await rig.settle()
         fails = ([] if res.ok else [res.message]) + rig.failures(start)
         check("an unknown action fails", bool(fails), f"got {res}",
               passes="Result(False, ...) when robot.action_ids().get(action) is None")
         check("... and the message lists the actions that exist", any("wave_left" in f for f in fails),
               f"messages: {fails}",
-              passes='"unknown trick action fetch_the_ball; available: [\'wave_left\', ...]" (fails: "unknown action")')
+              passes='"unknown interactive action fetch_the_ball; available: [\'wave_left\', ...]" (fails: "unknown action")')
 
         start = len(rig.records)
         rig.robot.published.clear()
-        res = await behaviors.trick_action(rig.ts, "wave_left")  # hold_pose is not running
+        res = await behaviors.interactive_action(rig.ts, "wave_left")  # hold_pose is not running
         await rig.settle()
         check("an action while its trick is not running fails right away", not res.ok, f"got {res}",
               passes="refuse now if robot.state_after_queue is not trick (fails: only checking in the job)")
@@ -958,7 +958,7 @@ async def todo9() -> None:
         await behaviors.play_trick(rig.ts, "hold_pose")
         await rig.settle()
         start = len(rig.records)
-        res = await behaviors.trick_action(rig.ts, "wave_left")
+        res = await behaviors.interactive_action(rig.ts, "wave_left")
         await rig.settle()
         check("an action while the trick holds its pose is accepted", res.ok, f"got {res}",
               passes='"hold_pose wave_left queued; ..."')
@@ -970,7 +970,7 @@ async def todo9() -> None:
               ctrl in rig.robot.active() and LOCOMOTION_CONTROLLER not in rig.robot.active(),
               passes="no switch_to after a clip that isn't the exit clip")
 
-        await behaviors.trick_action(rig.ts, "leave")
+        await behaviors.interactive_action(rig.ts, "leave")
         await rig.settle()
         check("the exit clip plays", rig.robot.clips(ctrl)[-1:] == ["leave"], f"clips sent: {rig.robot.clips(ctrl)}",
               passes="await robot.switch_to(LOCOMOTION_CONTROLLER): it plays the exit clip on the way out")
@@ -980,7 +980,7 @@ async def todo9() -> None:
               passes="for the exit clip: await robot.switch_to(LOCOMOTION_CONTROLLER)")
         check("... and Pupper is in locomotion mode again", rig.ts.state_now == LOCOMOTION,
               f"state_now: {rig.ts.state_now}", passes="switch_to keeps robot.state_now up to date")
-        res = await behaviors.trick_action(rig.ts, "wave_left")
+        res = await behaviors.interactive_action(rig.ts, "wave_left")
         check("after the exit clip, actions are refused again", not res.ok, f"got {res}",
               passes="then=LOCOMOTION when queuing the exit clip (fails: then=trick)")
     finally:
@@ -992,7 +992,7 @@ async def todo9() -> None:
         # "Sit and give me your paw", in one breath: two tool calls, back to back.
         await behaviors.play_trick(rig.ts, "hold_pose")
         start = len(rig.records)
-        res = await behaviors.trick_action(rig.ts, "wave_right")
+        res = await behaviors.interactive_action(rig.ts, "wave_right")
         await rig.settle()
         check("an action queued right behind its trick is accepted and plays",
               res.ok and "wave_right" in rig.robot.clips(ctrl),
@@ -1006,7 +1006,7 @@ async def todo9() -> None:
         rig.ts.state_after_queue = rig.ts.tricks["hold_pose"]  # as if it were still coming
         rig.robot.published.clear()
         start = len(rig.records)
-        res = await behaviors.trick_action(rig.ts, "wave_left")
+        res = await behaviors.interactive_action(rig.ts, "wave_left")
         await rig.settle()
         check("when the queue gets to an action, it checks again that its trick is running",
               not rig.robot.clips(ctrl) and bool(rig.failures(start)),
@@ -1017,11 +1017,11 @@ async def todo9() -> None:
 
 
 async def todo10() -> None:
-    print("TODO 10: the trick_action tool")
+    print("TODO 10: the interactive_action tool")
     rig = Rig()
     try:
-        if described(rig, ["trick_action"], "TODO 10"):
-            decl = {d["name"]: d for d in tools.declarations(rig.ts)}["trick_action"]
+        if described(rig, ["interactive_action"], "TODO 10"):
+            decl = {d["name"]: d for d in tools.declarations(rig.ts)}["interactive_action"]
             check("its description lists the actions (has {actions})", "Waves the left paw." in decl["description"],
                   decl["description"], passes='"Do something inside a trick ... Actions:\\n{actions}"')
             params = decl.get("parameters", {}).get("properties", {})
@@ -1031,12 +1031,12 @@ async def todo10() -> None:
         ctrl = rig.ts.tricks["hold_pose"].controller
         await behaviors.play_trick(rig.ts, "hold_pose")
         await rig.settle()
-        res = await rig.call("trick_action", action="wave_left")
+        res = await rig.call("interactive_action", action="wave_left")
         if unwritten(res):
             skip(f"{unwritten(res)} is not written yet")
             return
-        check("calling the trick_action tool plays the clip", res.ok and rig.robot.clips(ctrl)[-1:] == ["wave_left"],
-              f"result {res}; clips sent: {rig.robot.clips(ctrl)}", passes="return await trick_action(robot, action)")
+        check("calling the interactive_action tool plays the clip", res.ok and rig.robot.clips(ctrl)[-1:] == ["wave_left"],
+              f"result {res}; clips sent: {rig.robot.clips(ctrl)}", passes="return await interactive_action(robot, action)")
     finally:
         rig.close()
     shake = HERE.parent / "tricks" / "sit_stay_shake" / "trick.yaml"
@@ -1324,9 +1324,9 @@ async def provided() -> None:
     rig = Rig(no_clip_tricks)
     try:
         decls = {d["name"]: d for d in tools.declarations(rig.ts)}
-        check("trick_action is offered to Gemini even before an interactive trick is installed", "trick_action" in decls,
+        check("interactive_action is offered to Gemini even before an interactive trick is installed", "interactive_action" in decls,
               f"declared: {sorted(decls)}")
-        res = await tools.call(rig.ts, "trick_action", {"action": "shake_left"})
+        res = await tools.call(rig.ts, "interactive_action", {"action": "shake_left"})
         check("... and says nothing is installed yet", not res.ok and "installed" in res.message, f"got {res}")
     finally:
         rig.close()

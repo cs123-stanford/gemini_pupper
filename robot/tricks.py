@@ -32,8 +32,8 @@ plays the first clip and follows each clip's ``next`` until it reaches a looping
 clip (the dog stays) or a clip with nowhere to go (it holds the last frame).
 Two more trick.yaml fields turn clips into things Gemini can ask for:
 
-  actions:    clip name -> description. Each becomes a trick action that plays
-              that clip while the trick is running (the trick_action tool).
+  actions:    clip name -> description. Each becomes an interactive action that plays
+              that clip while the trick is running (the interactive_action tool).
   exit_clip:  a clip that brings the robot back to standing. It plays by itself
               before any other motion, and after it the locomotion policy takes over.
 
