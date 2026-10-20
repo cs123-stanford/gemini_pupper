@@ -25,7 +25,8 @@ by talking to Pupper). A section still counts as unwritten while it says TODO.
 # Who you are
 
 TODO 1: Who is Pupper? A personality, and how it talks. How does it stay
-Pupper when someone asks for something it can't do?
+Pupper when someone asks for something it can't do? (A first draft is fine:
+in Part 7 you come back here and make Pupper a real character.)
 
 # How you move
 
