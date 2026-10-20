@@ -37,15 +37,25 @@ Two more trick.yaml fields turn clips into things Gemini can ask for:
   exit_clip:  a clip that brings the robot back to standing. It plays by itself
               before any other motion, and after it the locomotion policy takes over.
 
-An interactive trick can also walk in its own stance (the spider). One more field:
+An interactive trick can also walk in its own stance (the spider). One more
+field, a block:
 
-  walk_policy: a walking policy trained in that stance (pupper-mjlab's
-              Mjlab-SpiderWalk-Flat-Pupper-v3). The launch loads it as a second
-              controller, walk_<name>. Playing the trick plays its opening clips,
-              then hands the legs to the walking policy; move, turn and arc drive
-              it, slowed to the speeds it was trained for (its command_clip). Leaving
-              the trick switches back to the trick's own policy, started at its
-              exit_clip (the controller's start_clip parameter).
+  walk:
+    policy: walk_policy.json   # a walking policy trained in that stance
+    speed: 0.1                 # default m/s for move and arc in this trick
+    max_forward: 0.15          # m/s, forward and backward
+    max_sideways: 0.1          # m/s
+    turn: 30                   # deg/s: turn's speed in this trick, and its max
+    run: false                 # can it run?
+    note: Creeps slowly.       # anything else Gemini should know
+
+The launch loads the policy as a second controller, walk_<name>. Playing the
+trick plays its opening clips, then hands the legs to the walking policy; move,
+turn and arc drive it, at these speeds (robot.speeds()), and a faster move is
+refused with these numbers. The speeds can't be more than the policy was trained
+for (its command_clip). Gemini reads them in the trick's description. Leaving
+the trick switches back to the trick's own policy, started at its exit_clip (the
+controller's start_clip parameter).
 
 This module has no ROS imports, so the launch file can use it too.
 """
@@ -78,6 +88,25 @@ WALK_READY_S = 4.2
 
 
 @dataclass
+class WalkConfig:
+    """How a walking trick walks: its default and top speeds, in trick.yaml's walk block."""
+
+    speed: float  # default m/s for move and arc
+    max_forward: float  # m/s, forward and backward
+    max_sideways: float  # m/s
+    turn: float  # deg/s: turn's speed, and the top turning speed
+    run: bool = False
+    note: str = ""
+
+    def describe(self) -> str:
+        """What Gemini reads about walking in this trick."""
+        run = "It can run." if self.run else "It cannot run."
+        return (f"While in it, move, turn and arc walk in its stance: at most {self.max_forward:g} m/s forward or"
+                f" backward and {self.max_sideways:g} m/s sideways (default {self.speed:g} m/s); it turns at"
+                f" {self.turn:g} deg/s. {run} {self.note}").strip()
+
+
+@dataclass
 class Trick:
     name: str
     description: str
@@ -92,7 +121,7 @@ class Trick:
     actions: dict[str, str] = field(default_factory=dict)  # clip -> description
     exit_clip: str | None = None
     walk_path: Path | None = None  # a walking interactive trick's walking policy
-    walk_limits: tuple[float, float, float] | None = None  # its top (vx m/s, vy m/s, wz deg/s)
+    walk: WalkConfig | None = None  # ... and its speeds (trick.yaml's walk block)
 
     @property
     def interactive(self) -> bool:
@@ -180,19 +209,32 @@ def load_tricks(trick_dir: Path = TRICK_DIR) -> dict[str, Trick]:
         for clip in [*actions, *([exit_clip] if exit_clip else [])]:
             if clip not in clip_names:
                 raise ValueError(f"{spec_path}: clip {clip!r} is not in the policy's clips {sorted(clip_names)}")
-        walk_path, walk_limits = None, None
-        if spec.get("walk_policy"):
+        walk_path, walk = None, None
+        if spec.get("walk"):
+            w = spec["walk"]
             if not clips or not exit_clip:
-                raise ValueError(f"{spec_path}: a walk_policy needs an interactive trick (clips and an exit_clip)")
-            walk_path = spec_path.parent / spec["walk_policy"]
-            clip_cmd = json.loads(walk_path.read_text())["command_clip"]  # what it was trained on
-            walk_limits = (max(map(abs, clip_cmd["vx"])), max(map(abs, clip_cmd["vy"])),
-                           math.degrees(max(map(abs, clip_cmd["wz"]))))
+                raise ValueError(f"{spec_path}: walk needs an interactive trick (clips and an exit_clip)")
+            walk_path = spec_path.parent / w["policy"]
+            walk = WalkConfig(speed=float(w["speed"]), max_forward=float(w["max_forward"]),
+                              max_sideways=float(w["max_sideways"]), turn=float(w["turn"]),
+                              run=bool(w.get("run", False)), note=str(w.get("note", "")).strip())
+            clip_cmd = json.loads(walk_path.read_text())["command_clip"]  # what the policy was trained on
+            trained = (max(map(abs, clip_cmd["vx"])), max(map(abs, clip_cmd["vy"])),
+                       math.degrees(max(map(abs, clip_cmd["wz"]))))
+            for what, asked, top in zip(("max_forward", "max_sideways", "turn"),
+                                        (walk.max_forward, walk.max_sideways, walk.turn), trained):
+                if asked > top + 1e-6:
+                    raise ValueError(f"{spec_path}: walk {what} {asked:g} is more than its policy was trained for ({top:g})")
+            if walk.speed > walk.max_forward:
+                raise ValueError(f"{spec_path}: walk speed {walk.speed:g} is more than max_forward {walk.max_forward:g}")
         if spec.get("replaced_by"):
             replaced_by[name] = str(spec["replaced_by"])
+        description = str(spec.get("description", name)).strip()
+        if walk:  # what Gemini reads about walking in it comes from the numbers
+            description = f"{description} {walk.describe()}"
         tricks[name] = Trick(
             name=name,
-            description=str(spec.get("description", name)).strip(),
+            description=description,
             kind=kind,
             path=path,
             duration=duration,
@@ -204,7 +246,7 @@ def load_tricks(trick_dir: Path = TRICK_DIR) -> dict[str, Trick]:
             actions=actions,
             exit_clip=exit_clip,
             walk_path=walk_path,
-            walk_limits=walk_limits,
+            walk=walk,
         )
     return {name: t for name, t in tricks.items() if replaced_by.get(name) not in tricks}
 

@@ -20,7 +20,8 @@ from tool_registry import Param, tool
 # running gait above about 0.5 m/s).
 RUN_MIN_SPEED = 1.0
 RUN_DEFAULT_SPEED = 1.2
-TURN_SPEED = 60.0  # deg/s
+# The default walking and turning speeds come from robot.speeds(): 0.4 m/s and
+# 60 deg/s in locomotion mode, and a walking trick's own (the spider's are slower).
 
 
 # ============================================================ what the robot does
@@ -78,20 +79,21 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
     - Why check robot.fallen three times? The robot may already have fallen when
       Gemini asks (1), may fall while this job waits in line (2), or while it
       walks (3). Each time, Gemini should hear FELL_MESSAGE, not "moved".
-    - Who walks? Usually the locomotion policy. But in a trick that walks in its
-      own stance (the spider, Part 6), its own walking policy does, slowly: the
-      move is slowed to what that policy was trained for, and lasts longer so it
-      still goes as far. Which one it is depends on the state Pupper will be in
-      when the job runs: robot.state_after_queue, the same now-question as Part 5.
+    - Who walks, and how fast? Usually the locomotion policy. But in a trick
+      that walks in its own stance (the spider, Part 6), its own walking policy
+      does, with its own limits (robot.speeds(): from its trick.yaml), so a move
+      that is too fast for it is refused with its numbers. Both depend on the
+      state Pupper will be in when the job runs: robot.state_after_queue, the
+      same now-question as Part 5.
     """
     # NOW, before anything is queued:
-    refused = check_move(vx, vy, wz_deg, duration)  # your TODO 2: is this move allowed?
+    speeds = robot.speeds()  # the limits where Pupper will be (a walking trick has its own)
+    refused = check_move(vx, vy, wz_deg, duration, speeds.limits)  # your TODO 2: is this move allowed?
     if refused:
-        return Result(False, refused)  # Gemini hears why; nothing is queued
+        return Result(False, refused + speeds.where)  # Gemini hears why; nothing is queued
     note = await prepare_to_move(robot)  # get ready: does nothing until your TODO 5 (Part 3)
     state = robot.state_after_queue  # where Pupper will be when this job runs
     walker = robot.walking_controller(state)  # the locomotion policy, or a walking trick's own
-    vx, vy, wz_deg, duration, slower = robot.slow_to(state, vx, vy, wz_deg, duration)
     then = state if walker != LOCOMOTION_CONTROLLER else LOCOMOTION  # a walking trick stays in its stance
     if robot.fallen:  # (1)
         return Result(False, FELL_MESSAGE)
@@ -114,7 +116,7 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
 
     # What Gemini hears NOW: the job was accepted.
     what = f"vx={vx:g} vy={vy:g} wz={wz_deg:.3g}"  # 45.836623610465864 -> 45.8: Gemini reads this
-    return with_note(f"{note} {slower}", await robot.queue(f"move {what} {duration:.3g}s", job, duration, then=then))
+    return with_note(note, await robot.queue(f"move {what} {duration:.3g}s", job, duration, then=then))
 
 
 # ============================================================ what Gemini reads
@@ -146,8 +148,10 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
 async def turn_tool(robot: Robot, direction: str, angle: float = 90.0) -> Result:
     # Turn in place: no forward or sideways speed, just a turning speed, for as long
     # as the angle takes.
-    # 1. wz_deg: +TURN_SPEED to the left (counter-clockwise), -TURN_SPEED to the right.
-    # 2. How long it takes: seconds = abs(angle) / TURN_SPEED
+    # 1. The turning speed: turn_speed = robot.speeds().turn (60 deg/s walking; a
+    #    walking trick has its own). wz_deg: +turn_speed to the left (counter-clockwise),
+    #    -turn_speed to the right.
+    # 2. How long it takes: seconds = abs(angle) / turn_speed
     #    (90 degrees at 60 deg/s takes 1.5 s)
     # 3. return await walk(robot, 0.0, 0.0, wz_deg, seconds)
     return not_written("TODO 3", "turn in lab/part2_walk.py")
@@ -174,7 +178,8 @@ async def move_tool(
     #    - running (run is True AND the direction is forward or backward): at least
     #      RUN_MIN_SPEED; if Gemini gave no speed, RUN_DEFAULT_SPEED.
     #      (max(a, b) is the bigger of two numbers: max(0.6, RUN_MIN_SPEED) is 1.0.)
-    #    - otherwise (walking, or any sideways move): speed, or 0.4 if Gemini gave none.
+    #    - otherwise (walking, or any sideways move): speed, or robot.speeds().walk if
+    #      Gemini gave none (0.4 m/s walking; a walking trick has its own).
     # 2. Split it by direction (the robot's convention: +x forward, +y LEFT):
     #        forward: vx = +speed, vy = 0      backward: vx = -speed, vy = 0
     #        left:    vx = 0, vy = +speed      right:    vx = 0, vy = -speed
@@ -244,15 +249,17 @@ async def arc_tool(
     direction: str,
     angle: float,
     radius: float = 0.5,
-    speed: float = 0.4,
+    speed: float | None = None,
 ) -> Result:
+    # speed is None when Gemini gave none: use robot.speeds().walk (0.4 m/s walking).
     # 1. No circle to follow: if radius < 0 or speed <= 0, return Result(False, ...)
     #    saying which, and what works: "radius must be 0 m or more".
-    #    Radius 0 is a sharp corner: turn in place like your turn tool (+-TURN_SPEED,
-    #    for abs(angle) / TURN_SPEED s), and say so in front of walk's reply:
+    #    Radius 0 is a sharp corner: turn in place like your turn tool (+-turn_speed,
+    #    for abs(angle) / turn_speed s), and say so in front of walk's reply:
     #      return with_note("Radius 0: turned in place (a sharp corner).", await walk(...))
-    # 2. Too tight: if math.degrees(speed / radius) > LIMITS.wz_max, return a failure
-    #    with the smallest radius that works: speed / math.radians(LIMITS.wz_max).
+    # 2. Too tight: if math.degrees(speed / radius) > wz_max, return a failure
+    #    with the smallest radius that works: speed / math.radians(wz_max), where
+    #    wz_max = robot.speeds().limits.wz_max (LIMITS.wz_max walking).
     #    (check_move would refuse it too, but "|wz|<=114.0" doesn't tell Gemini that
     #    the radius is the problem.) Round up: f"{math.ceil(r * 100) / 100} m"
     # 3. wz_deg = math.degrees(speed / radius): + to the left, - to the right.

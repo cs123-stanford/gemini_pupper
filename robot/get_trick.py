@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -118,7 +119,17 @@ def write_template(dest: Path, name: str, policy: dict, walks: bool = False) -> 
     lines += [f"#   {c['name']}: TODO what this clip does" for c in clips]
     lines += ["# exit_clip: <clip>", "# end_pose: <the pose the looping clip holds>"]
   if walks:
-    lines += ["walk_policy: walk_policy.json   # it walks in its stance: move, turn and arc drive this"]
+    cmd = json.loads((dest / "walk_policy.json").read_text())["command_clip"]
+    lines += [
+      "walk:                      # it walks in its stance: move, turn and arc drive this policy",
+      "  policy: walk_policy.json",
+      "  speed: TODO              # default m/s for move and arc",
+      f"  max_forward: TODO        # m/s; at most {max(map(abs, cmd['vx'])):g} (what it was trained for)",
+      f"  max_sideways: TODO       # m/s; at most {max(map(abs, cmd['vy'])):g}",
+      f"  turn: TODO               # deg/s; at most {math.degrees(max(map(abs, cmd['wz']))):.0f}",
+      "  run: false",
+      "  note: TODO anything else Gemini should know about walking like this",
+    ]
   spec.write_text("\n".join(lines) + "\n")
   print(f"Wrote a template {spec}; edit its description.")
 

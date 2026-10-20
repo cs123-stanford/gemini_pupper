@@ -228,7 +228,7 @@ import tool_registry as tools  # noqa: E402  (call and declarations: what the we
 behaviors = tools.load_lab()  # noqa: E402  (everything in lab/: lab.walk, lab.check_move, ...)
 check_move = behaviors.check_move
 from robot_api import LIMITS, LLM_CMD_RATE, LOCOMOTION, LOCOMOTION_CONTROLLER, WALK_READY_S, Robot  # noqa: E402
-from tricks import Trick  # noqa: E402
+from tricks import Trick, WalkConfig  # noqa: E402
 
 _real_sleep = asyncio.sleep
 
@@ -1260,7 +1260,8 @@ async def provided() -> None:
             duration=8.0, end_pose="crouched",
             clips=[_clip("down", 0, 200, next="idle"), _clip("idle", 199, 250, loop=True), _clip("up", 249, 450)],
             actions={"up": "Stands back up."}, exit_clip="up",
-            walk_path=Path("creep_walk.json"), walk_limits=(0.15, 0.1, 34.4),
+            walk_path=Path("creep_walk.json"),
+            walk=WalkConfig(speed=0.1, max_forward=0.15, max_sideways=0.1, turn=30.0, note="It creeps."),
         )
         return tricks
 
@@ -1275,18 +1276,37 @@ async def provided() -> None:
         check("... and the outcome says it walks in its stance", res.ok and "walk" in res.message, f"got {res}")
 
         rig.ts.state_after_queue = creep  # as play_trick's then= leaves it
+        check("robot.speeds() in a walking trick: its own defaults and limits",
+              rig.ts.speeds().walk == 0.1 and rig.ts.speeds().turn == 30.0 and rig.ts.speeds().limits.vx_max == 0.15,
+              f"got {rig.ts.speeds()}")
         rig.robot.published.clear()
         res = await behaviors.walk(rig.ts, 0.3, 0.0, 0.0, 2.0)
         await rig.settle()
-        sent = [m.linear.x for _, m in rig.robot.twists() if m.linear.x]
         if unwritten(res):
             skip(f"walking in the stance needs {unwritten(res)} first")
         else:
-            check("move in the stance drives the trick's walking policy, slowed to its speeds, for longer",
-                creep.walk_controller in rig.robot.active() and sent and max(sent) <= 0.15 + 1e-6
-                and abs(len(sent) / LLM_CMD_RATE - 4.0) < 0.2 and rig.ts.state_now is creep,
-                f"active: {sorted(rig.robot.active())}; top speed {max(sent or [0]):.2f}; {len(sent) / LLM_CMD_RATE:.1f} s")
-            check("... and the reply says it is slower", res.ok and "slower" in res.message, f"got {res}")
+            check("a move too fast for the trick is refused, with its limit, and nothing is sent",
+                  not res.ok and "0.15" in res.message and "creep" in res.message and not rig.robot.twists(),
+                  f"got {res}", passes='"too fast: |vx|<=0.15 m/s (in creep)"')
+            res = await behaviors.walk(rig.ts, 0.1, 0.0, 0.0, 2.0)
+            await rig.settle()
+            sent = [m.linear.x for _, m in rig.robot.twists() if m.linear.x]
+            check("a move within its limits drives the trick's walking policy, and Pupper stays in the trick",
+                  res.ok and creep.walk_controller in rig.robot.active() and sent and abs(max(sent) - 0.1) < 1e-6
+                  and abs(len(sent) / LLM_CMD_RATE - 2.0) < 0.1 and rig.ts.state_now is creep,
+                  f"got {res}; active: {sorted(rig.robot.active())}; sent {len(sent) / LLM_CMD_RATE:.1f} s")
+            rig.robot.published.clear()
+            res = await rig.call("turn", direction="left", angle=90)
+            await rig.settle()
+            turned = [math.degrees(m.angular.z) for _, m in rig.robot.twists() if m.angular.z]
+            if unwritten(res):
+                skip(f"turning in the stance needs {unwritten(res)} first")
+            else:
+                check("turn in the trick turns at its speed (robot.speeds().turn), as far as asked",
+                      res.ok and turned and abs(max(turned) - 30.0) < 0.1
+                      and abs(sum(turned) / LLM_CMD_RATE - 90.0) < 3.0,
+                      f"got {res}; top {max(turned or [0]):.1f} deg/s, {sum(turned) / LLM_CMD_RATE:.0f} deg",
+                      passes="turn_speed = robot.speeds().turn")
 
         await behaviors.stand_up(rig.ts)
         await rig.settle()

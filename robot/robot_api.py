@@ -12,6 +12,8 @@ the table in the lab handout lists it too.
   robot.send_speed(vx, vy, wz_deg)  one speed command to the policy that walks now
   robot.walking_controller(state)  the controller that walks in a state (locomotion,
                                   or a walking trick's own walking policy)
+  robot.speeds()                  default speeds and limits where Pupper will be
+                                  once the queue has run (move, turn, arc use them)
   await robot.sleep(seconds), robot.now()
                                   wait without freezing the server; the time now
   robot.fallen                    which controller fell over (None if upright)
@@ -56,7 +58,7 @@ import math
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 import rclpy
@@ -127,6 +129,19 @@ class MoveLimits:
 
 
 LIMITS = MoveLimits()
+
+
+@dataclass
+class Speeds:
+    """How Pupper walks in a state: default speeds, and the limits check_move enforces."""
+
+    walk: float = 0.4  # m/s: move's and arc's speed when Gemini gives none
+    turn: float = 60.0  # deg/s: turn's speed (and arc's, for a sharp corner)
+    limits: MoveLimits = field(default_factory=lambda: LIMITS)
+    where: str = ""  # "" in locomotion; " (in <trick>)" in a walking trick, for refusals
+
+
+SPEEDS = Speeds()  # locomotion mode
 
 
 @dataclass
@@ -422,18 +437,18 @@ class Robot:
         walking policy, else the locomotion policy (which they switch to first)."""
         return state.walk_controller if isinstance(state, Trick) and state.walks else LOCOMOTION_CONTROLLER
 
-    def slow_to(self, state, vx: float, vy: float, wz_deg: float, duration: float):
-        """In a walking trick, scale a move down to the speeds its walking policy was
-        trained for, and stretch the duration so it still goes as far (and turns as
-        far). Returns (vx, vy, wz_deg, duration, note); the note is "" when nothing changed."""
-        if not (isinstance(state, Trick) and state.walks and state.walk_limits):
-            return vx, vy, wz_deg, duration, ""
-        limits = state.walk_limits
-        f = min([1.0] + [lim / abs(v) for v, lim in zip((vx, vy, wz_deg), limits) if abs(v) > lim])
-        if f >= 1.0:
-            return vx, vy, wz_deg, duration, ""
-        note = f"{state.name} walks slower, so this takes {duration / f:.1f} s instead of {duration:.1f} s."
-        return vx * f, vy * f, wz_deg * f, duration / f, note
+    def speeds(self, state=None) -> Speeds:
+        """Default speeds and limits in a state (default: robot.state_after_queue, where
+        Pupper will be when a move asked for now runs). A walking trick has its own,
+        from its trick.yaml; everywhere else, the locomotion policy's."""
+        state = self.state_after_queue if state is None else state
+        w = state.walk if isinstance(state, Trick) and state.walks else None
+        if w is None:
+            return SPEEDS
+        limits = MoveLimits(vx_min=min(0.05, w.max_forward), vy_min=min(0.05, w.max_sideways), wz_min=min(10.0, w.turn),
+                            vx_max=w.max_forward, vy_max=w.max_sideways, wz_max=w.turn,
+                            duration_max=LIMITS.duration_max, distance_max=LIMITS.distance_max)
+        return Speeds(walk=w.speed, turn=w.turn, limits=limits, where=f" (in {state.name})")
 
     async def _set_start_clip(self, controller: str, clip: str) -> None:
         """Set an interactive trick's start_clip parameter ("" = its first clip)."""

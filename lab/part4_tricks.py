@@ -122,8 +122,8 @@ async def play_policy_trick(robot: Robot, trick: Trick) -> Result:
             if not res.ok:
                 return Result(False, f"played {trick.name}, but its walking policy did not take over: {res.message}")
             await robot.sleep(WALK_READY_S)  # it eases into the stance, then fades its policy in
-            return Result(True, f"played {trick.name}; it now stays in its {trick.end_pose} stance, and move, turn"
-                                f" and arc walk slowly in it. Interactive actions: {actions}.{leave}")
+            return Result(True, f"played {trick.name}; it now stays in its {trick.end_pose} stance."
+                                f" {trick.walk.describe()} Interactive actions: {actions}.{leave}")
         return Result(True, f"played {trick.name}; it now stays {trick.end_pose}. Interactive actions: {actions}.{leave}")
     if trick.end_pose == "standing":  # 4. hand back to the locomotion policy
         res = await robot.switch_to(LOCOMOTION_CONTROLLER)
