@@ -1,10 +1,12 @@
-"""Part 5: Sit, Stay, Shake. TODO 9 (interactive_action), then TODO 10 (what Gemini reads about it).
+"""Part 5: interactive actions. TODO 9 (interactive_action), then TODO 10 (what Gemini reads about it).
 
 An interactive trick (part4_tricks.py explains them) is one Pupper stays in
-and that takes requests: the shakes and the stand-up of sit_stay_shake are its
-*actions*, and they only make sense while Pupper is in that trick. You train sit_stay_shake in the
-notebook and fetch it with robot/get_trick.py; until then, the tests use a
-made-up interactive trick called hold_pose.
+and that takes requests: its *actions*, clips Gemini asks for while Pupper is in
+it. interactive_action plays them, for every interactive trick: the shakes and
+the stand-up of sit_stay_shake (Part 5), and spider_up, the spider's way back
+to standing (Part 6). You train sit_stay_shake in the notebook and fetch it with
+robot/get_trick.py; until then, the tests use a made-up interactive trick
+called hold_pose.
 """
 
 from __future__ import annotations
@@ -71,7 +73,7 @@ async def interactive_action(robot: Robot, action: str) -> Result:
     # QUEUE IT:
     # 5. return await robot.queue(f"{trick.name} {clip}", job, trick.clip_time_estimate(clip),
     #                              then=...)   LOCOMOTION after the exit clip, else trick.
-    return not_written("TODO 9", "interactive_action in lab/part5_sit_stay_shake.py")
+    return not_written("TODO 9", "interactive_action in lab/part5_interactive_action.py")
     # ====================================
 
 
@@ -97,5 +99,5 @@ async def interactive_action(robot: Robot, action: str) -> Result:
 )
 async def interactive_action_tool(robot: Robot, action: str) -> Result:
     # One line: call interactive_action(robot, action) (your TODO 9), await it, and return it.
-    return not_written("TODO 10", "interactive_action in lab/part5_sit_stay_shake.py")
+    return not_written("TODO 10", "interactive_action in lab/part5_interactive_action.py")
 # =====================================

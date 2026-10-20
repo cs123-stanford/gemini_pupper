@@ -34,7 +34,7 @@ one TODO at a time, and run its test group: `python3 lab/test.py todo3`.
 | `part2_walk.py`: TODO 2 (`check_move`), 3 (the `turn` and `move` tools), 4 (the `arc` tool) | `robot/`: the Robot API (`robot_api.py`), the tool registry, the robot server, the tests, the chat, the launch files and scripts |
 | `part3_follow.py`: TODO 5 (`prepare_to_move`), 6 (the `follow` tool) | `web/`: the web app (TypeScript); students don't need to touch it |
 | `part4_tricks.py`: TODO 7 (`play_trick`), 8 (its words) | `robot/tricks.py`, `robot/get_trick.py` |
-| `part5_sit_stay_shake.py`: TODO 9 (`interactive_action`), 10 (its words, and `tricks/sit_stay_shake/trick.yaml`) | |
+| `part5_interactive_action.py`: TODO 9 (`interactive_action`), 10 (its words, and `tricks/sit_stay_shake/trick.yaml`) | |
 | In pupper-mjlab: the Sit_Stay_Shake notebook (or `tricks/sit_stay_shake.py`): `cut`, `hold`, `mirror`, the clips and `ORDER` | The rest of pupper-mjlab |
 | In pupper-mjlab (Part 6): the Spider notebook (or `tricks/spider.py`): `reverse`, the clips and `ORDER`; the spider walk's reward weights; then `tricks/spider_walk/trick.yaml` | |
 

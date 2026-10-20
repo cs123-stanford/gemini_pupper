@@ -58,7 +58,7 @@ TOOLS: dict[str, Tool] = {}
 
 # The lab's files, in the order of the lab. Gemini gets the tools in this order.
 LAB_DIR = Path(__file__).resolve().parent.parent / "lab"
-LAB_MODULES = ["basics", "part2_walk", "part3_follow", "part4_tricks", "part5_sit_stay_shake"]
+LAB_MODULES = ["basics", "part2_walk", "part3_follow", "part4_tricks", "part5_interactive_action"]
 
 
 def tool(tool_name: str, description: str, /, **params: Param):
