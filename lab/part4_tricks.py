@@ -15,7 +15,7 @@ clip (trick.exit_clip).
 
 from __future__ import annotations
 
-from basics import ENDS_FOLLOW
+from basics import PREPARES_MOVE
 from part3_follow import prepare_to_move
 from robot_api import FELL_MESSAGE, LOCOMOTION, LOCOMOTION_CONTROLLER, WALK_READY_S, Result, Robot, not_written, with_note  # noqa: F401
 from tool_registry import TRICK_NAMES, Param, tool
@@ -148,7 +148,7 @@ async def play_policy_trick(robot: Robot, trick: Trick) -> Result:
 # ========== TODO 8: YOUR CODE HERE ==========
 @tool(
     "play_trick",
-    "TODO 8: describe play_trick for Gemini." + ENDS_FOLLOW + "\nTricks:\n{tricks}",
+    "TODO 8: describe play_trick for Gemini." + PREPARES_MOVE + "\nTricks:\n{tricks}",
     name=Param("string", "TODO 8", enum=TRICK_NAMES),
 )
 # ====================================

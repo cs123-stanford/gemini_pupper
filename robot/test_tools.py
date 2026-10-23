@@ -592,7 +592,7 @@ async def todo3() -> None:
             check(f"move's words give the real speed limit (LIMITS.vx_max, {LIMITS.vx_max})", str(LIMITS.vx_max) in text,
                   passes='f"... running {RUN_MIN_SPEED}-{LIMITS.vx_max} m/s ..." (fails: "fast", or a typed-in 1.5)')
             check('... and say that it ends follow mode (says "follow")', "follow" in text.lower(),
-                  passes='"Walk or run ..." + ENDS_FOLLOW (fails: leaving ENDS_FOLLOW out)')
+                  passes='"Walk or run ..." + PREPARES_MOVE (fails: leaving PREPARES_MOVE out)')
         rig.robot.published.clear()
         res = await rig.call("move", direction="forward", duration=1.0)
         if unwritten(res):
@@ -647,7 +647,7 @@ async def todo4() -> None:
                   str(LIMITS.distance_max) in text,
                   passes='f"... One arc goes at most {LIMITS.distance_max} m." (fails: "Walk in a curve.")')
             check('... and say that it ends follow mode (says "follow")', "follow" in text.lower(),
-                  passes='"Walk forward and turn ..." + ENDS_FOLLOW (fails: leaving ENDS_FOLLOW out)')
+                  passes='"Walk forward and turn ..." + PREPARES_MOVE (fails: leaving PREPARES_MOVE out)')
         res = await rig.call("arc", direction="left", angle=90, radius=0.5)
         if unwritten(res):
             skip(f"{unwritten(res)} is not written yet (arc needs TODO 2 and TODO 4)")
@@ -888,7 +888,7 @@ async def todo8() -> None:
         decl = {d["name"]: d for d in tools.declarations(rig.ts)}["play_trick"]
         check("its description lists every trick with its own description (has {tricks})",
               all(t.description in decl["description"] for t in rig.ts.tricks.values()), decl["description"],
-              passes='"Play a trick. ..." + ENDS_FOLLOW + "\\nTricks:\\n{tricks}" (fails: listing the tricks by hand)')
+              passes='"Play a trick. ..." + PREPARES_MOVE + "\\nTricks:\\n{tricks}" (fails: listing the tricks by hand)')
         params = decl.get("parameters", {}).get("properties", {})
         enums = [v for p in params.values() for v in p.get("enum", [])]
         check("its choices are the installed tricks", set(rig.ts.tricks) <= set(enums), f"choices: {enums}",

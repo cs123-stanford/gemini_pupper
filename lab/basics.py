@@ -41,8 +41,8 @@ from part3_follow import prepare_to_move
 from robot_api import LOCOMOTION, LOCOMOTION_CONTROLLER, MOTORS_IDLE, WALK_READY_S, Result, Robot, with_note
 from tool_registry import tool
 
-# Added to the description of every tool that ends follow mode (Part 3).
-ENDS_FOLLOW = (
+# Added to the description of every tool that calls prepare_to_move, which ends follow mode (Part 3).
+PREPARES_MOVE = (
     " If follow mode is on, this ends it: first tell the user,"
     ' e.g. "Let me stop following you and ...".'
 )
@@ -70,7 +70,7 @@ async def lie_down(robot: Robot) -> Result:
 
 
 # ============================================================ what Gemini reads
-@tool("stand_up", "Stand up, ready to walk. Needed before moving, and to stand up after a trick." + ENDS_FOLLOW)
+@tool("stand_up", "Stand up, ready to walk. Needed before moving, and to stand up after a trick." + PREPARES_MOVE)
 async def stand_up_tool(robot: Robot) -> Result:
     return await stand_up(robot)
 
@@ -78,7 +78,7 @@ async def stand_up_tool(robot: Robot) -> Result:
 @tool(
     "lie_down",
     "Relax all motors so the robot lies down. Use when the user says sleep, relax"
-    " or lie down." + ENDS_FOLLOW,
+    " or lie down." + PREPARES_MOVE,
 )
 async def lie_down_tool(robot: Robot) -> Result:
     return await lie_down(robot)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from basics import ENDS_FOLLOW
+from basics import PREPARES_MOVE
 from part3_follow import prepare_to_move
 from robot_api import FELL_MESSAGE, LIMITS, LLM_CMD_RATE, LOCOMOTION, LOCOMOTION_CONTROLLER, MoveLimits, Result, Robot, not_written, with_note  # noqa: F401
 from tool_registry import Param, tool
@@ -126,12 +126,12 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
 #     you the whole path: Gemini's words -> numbers -> walk -> the robot.
 #   - move is the real challenge: four parameters, defaults, and the "run" rule.
 #   - Put the robot's real limits in the words: LIMITS.vx_max and the others
-#     (robot/robot_api.py), RUN_MIN_SPEED, and the defaults. Add ENDS_FOLLOW.
+#     (robot/robot_api.py), RUN_MIN_SPEED, and the defaults. Add PREPARES_MOVE.
 #   Tests check:
 #   - each tool's description is 20+ characters, and every parameter is described
 #   - turn left sends +wz, right -wz, about the angle asked for, with vx = vy = 0
 #   - move's words contain the number LIMITS.vx_max ("1.5") and the word "follow"
-#     (from ENDS_FOLLOW). Passes: f"... up to {LIMITS.vx_max} m/s" + ENDS_FOLLOW
+#     (from PREPARES_MOVE). Passes: f"... up to {LIMITS.vx_max} m/s" + PREPARES_MOVE
 #   - the move examples below send exactly those speeds
 #   - move("right", run=True) says it walked: the reply says "walk".
 #     Passes: "Sideways never runs; walking instead. move vx=0 vy=-0.4 ... queued"
@@ -214,11 +214,11 @@ async def move_tool(
 #     e.g. 90 deg at 0.4 m/s around r = 0.5 m: wz = 45.8 deg/s for 1.96 s (0.79 m)
 #   Put the real limits in the words: the robot turns at most LIMITS.wz_max deg/s,
 #   so at speed v the radius must be at least v / math.radians(LIMITS.wz_max); one
-#   arc goes at most LIMITS.distance_max m. Add ENDS_FOLLOW.
+#   arc goes at most LIMITS.distance_max m. Add PREPARES_MOVE.
 #   Tests check:
 #   - arc's description is 20+ characters, and every parameter is described
-#   - its words contain LIMITS.distance_max ("7.0") and "follow" (from ENDS_FOLLOW).
-#     Passes: f"... One arc goes at most {LIMITS.distance_max} m." + ENDS_FOLLOW
+#   - its words contain LIMITS.distance_max ("7.0") and "follow" (from PREPARES_MOVE).
+#     Passes: f"... One arc goes at most {LIMITS.distance_max} m." + PREPARES_MOVE
 #     Fails:  "Walk in a curve." (Gemini then asks for circles the robot refuses)
 #   - arc("left", angle=90, radius=0.5) sends vx = +0.4, vy = 0 and wz = +45.8 deg/s,
 #     and turns about 90 deg; arc("right", ...) sends a negative wz, still forward
